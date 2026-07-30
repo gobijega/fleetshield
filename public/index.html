@@ -1,0 +1,115 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<title>Vehicle Telematics Solution — Fleet Dashboard (MVP)</title>
+<link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/leaflet/1.9.4/leaflet.min.css" />
+<link rel="stylesheet" href="style.css" />
+</head>
+<body>
+<header class="topbar">
+  <div class="brand">
+    <span class="brand-dot"></span>
+    <div>
+      <h1>Vehicle Telematics Solution</h1>
+      <p>Fleet Dashboard — MVP demo (simulated data)</p>
+    </div>
+  </div>
+  <div class="conn" id="connStatus">
+    <span class="dot" id="connDot"></span>
+    <span id="connText">Connecting…</span>
+  </div>
+</header>
+
+<nav class="tabs">
+  <button class="tab-btn active" data-tab="map">Live Map</button>
+  <button class="tab-btn" data-tab="alerts">Alerts <span class="badge" id="alertCount">0</span></button>
+  <button class="tab-btn" data-tab="reports">Reports</button>
+  <button class="tab-btn" data-tab="geofences">Geofencing</button>
+</nav>
+
+<main>
+  <section id="tab-map" class="tab-panel active">
+    <div class="map-layout">
+      <div id="map"></div>
+      <aside class="vehicle-list" id="vehicleList">
+        <h3>Fleet (<span id="fleetCount">0</span>)</h3>
+        <div id="vehicleItems"></div>
+      </aside>
+    </div>
+  </section>
+
+  <section id="tab-alerts" class="tab-panel">
+    <div class="panel-header">
+      <h2>Alerts</h2>
+      <select id="alertFilter">
+        <option value="all">All severities</option>
+        <option value="high">High</option>
+        <option value="medium">Medium</option>
+        <option value="low">Low</option>
+        <option value="info">Info</option>
+      </select>
+    </div>
+    <div class="alert-table-wrap">
+      <table class="alert-table">
+        <thead>
+          <tr><th>Time</th><th>Vehicle</th><th>Type</th><th>Severity</th><th>Message</th></tr>
+        </thead>
+        <tbody id="alertRows"></tbody>
+      </table>
+    </div>
+  </section>
+
+  <section id="tab-reports" class="tab-panel">
+    <h2>Fleet Reporting</h2>
+    <div class="cards" id="summaryCards"></div>
+    <div class="reports-grid">
+      <div class="chart-card">
+        <h3>Alerts by Type</h3>
+        <canvas id="alertChart" height="220"></canvas>
+      </div>
+      <div class="chart-card">
+        <h3>Per-Vehicle Distance (km)</h3>
+        <canvas id="distanceChart" height="220"></canvas>
+      </div>
+    </div>
+    <h3>Per-Vehicle Summary</h3>
+    <div class="alert-table-wrap">
+      <table class="alert-table" id="vehicleSummaryTable">
+        <thead>
+          <tr><th>Vehicle</th><th>Driver</th><th>Status</th><th>Speed</th><th>Distance (km)</th><th>Alerts</th></tr>
+        </thead>
+        <tbody id="vehicleSummaryRows"></tbody>
+      </table>
+    </div>
+  </section>
+
+  <section id="tab-geofences" class="tab-panel">
+    <h2>Geofencing &amp; Compliance</h2>
+    <div class="geofence-layout">
+      <div class="geofence-list" id="geofenceList"></div>
+      <form class="geofence-form" id="geofenceForm">
+        <h3>Add Geofence</h3>
+        <label>Name<input type="text" id="gfName" required placeholder="e.g. Northern Depot" /></label>
+        <label>Latitude<input type="number" step="any" id="gfLat" required placeholder="-37.8136" /></label>
+        <label>Longitude<input type="number" step="any" id="gfLng" required placeholder="144.9631" /></label>
+        <label>Radius (m)<input type="number" id="gfRadius" required placeholder="500" /></label>
+        <label>Type
+          <select id="gfType">
+            <option value="depot">Depot</option>
+            <option value="restricted">Restricted</option>
+            <option value="custom">Custom</option>
+          </select>
+        </label>
+        <button type="submit">Add Geofence</button>
+      </form>
+    </div>
+  </section>
+</main>
+
+<script src="https://cdnjs.cloudflare.com/ajax/libs/leaflet/1.9.4/leaflet.min.js"></script>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/Chart.js/4.4.4/chart.umd.min.js"></script>
+<script src="app.js"></script>
+</body>
+</html>
