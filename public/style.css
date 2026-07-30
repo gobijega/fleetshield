@@ -139,6 +139,9 @@ main { padding: 20px 24px 40px; max-width: 1400px; margin: 0 auto; }
 .sev-medium { background: rgba(242,169,59,0.15); color: var(--amber); }
 .sev-low { background: rgba(79,140,255,0.15); color: var(--accent); }
 .sev-info { background: rgba(139,152,175,0.15); color: var(--muted); }
+.sev-good { background: rgba(53,194,111,0.15); color: var(--green); }
+
+.hint { color: var(--muted); font-size: 13px; margin-top: 4px; }
 
 .cards { display: flex; gap: 14px; margin: 16px 0; flex-wrap: wrap; }
 .card {

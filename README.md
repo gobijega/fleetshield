@@ -8,14 +8,24 @@ layer is the one piece that would be swapped for a real device/API feed in produ
 
 ## What it demonstrates
 
-- **Live map** — vehicle positions update in real time over WebSocket, colour-coded by
-  status (moving / idling), with per-vehicle detail popups.
-- **Driver behaviour & alerts** — harsh braking, harsh acceleration, speeding, and
-  excessive idling events are detected and streamed live, with a filterable alerts log.
-- **Geofencing & compliance** — depot and restricted zones with entry/exit alerts;
-  add or remove zones from the UI.
-- **Fleet reporting** — summary KPIs (distance, average speed, idle vehicles, alert
-  counts), charts, and a per-vehicle breakdown.
+Mapped against Goulburn-Murray Water's stated purpose for this tender:
+
+- **Fleet safety & compliance** — driver-behaviour alerts (harsh braking, harsh
+  acceleration, speeding, excessive idling), a per-vehicle safety score derived from
+  alert history, plus simulated vehicle registration and service-due tracking with
+  overdue/due-soon flags.
+- **Visibility of fleet utilisation & location** — live map with real-time WebSocket
+  position updates, and a utilisation metric (% time moving vs idling) per vehicle and
+  fleet-wide.
+- **Understanding of driver behaviour** — live, filterable alerts log covering harsh
+  events, speeding, and idling, attributed to driver and vehicle.
+- **Operational efficiency** — fleet reporting dashboard: distance travelled, average
+  speed, idle vehicles, trip counts, and utilisation.
+- **Emissions performance & reporting** — per-vehicle fuel/energy consumption and CO2-e
+  emissions (diesel, petrol, and EV fleet mix, using standard combustion and grid
+  emission factors), rolled up to fleet totals and broken down by fuel type.
+- **Geofencing** — depot and restricted zones with entry/exit alerts; add or remove
+  zones from the UI.
 
 ## Architecture
 
@@ -52,7 +62,9 @@ first vehicle positions arrive.
 | GET | `/api/geofences` | Configured geofence zones |
 | POST | `/api/geofences` | Add a zone: `{ name, lat, lng, radiusM, type }` |
 | DELETE | `/api/geofences/:id` | Remove a zone |
-| GET | `/api/reports/summary` | Fleet KPIs, alert counts, per-vehicle stats |
+| GET | `/api/reports/summary` | Fleet KPIs, alert counts, per-vehicle stats (incl. emissions & utilisation) |
+| GET | `/api/reports/emissions` | Fleet + per-vehicle CO2-e, fuel/energy use, breakdown by fuel type |
+| GET | `/api/compliance` | Per-vehicle safety score, rego expiry status, service-due status |
 
 WebSocket stream at `ws://localhost:3000/ws` emits `init`, `positions`, and `alert`
 messages.

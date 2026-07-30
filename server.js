@@ -89,18 +89,27 @@ const ROUTES = {
   ],
 };
 
+// Fuel/energy consumption + emission-factor profile per vehicle. Consumption is
+// L/100km for diesel & petrol, kWh/100km for EVs; idle rate is per hour in the
+// same unit. Emission factors are kg CO2-e per litre (diesel/petrol, tailpipe)
+// or per kWh (EV, using an average grid-intensity factor for well-to-wheel
+// reporting) — standard approach for fleet emissions/ESG reporting.
+const EMISSION_FACTORS_KG = { diesel: 2.68, petrol: 2.31, ev: 0.85 };
+
 const VEHICLES = [
-  { id: 'VIC-01', label: 'Council Truck 01', driver: 'J. Ahmed', route: 'cbdLoop', speedLimit: 50, baseSpeed: 38 },
-  { id: 'VIC-02', label: 'Council Truck 02', driver: 'S. Nguyen', route: 'cbdLoop', speedLimit: 50, baseSpeed: 42 },
-  { id: 'VIC-03', label: 'Waste Collection 03', driver: 'M. Ricci', route: 'bayside', speedLimit: 60, baseSpeed: 50 },
-  { id: 'VIC-04', label: 'Waste Collection 04', driver: 'K. Walsh', route: 'bayside', speedLimit: 60, baseSpeed: 44 },
-  { id: 'VIC-05', label: 'Parks Ute 05', driver: 'D. Singh', route: 'outerEast', speedLimit: 70, baseSpeed: 58 },
-  { id: 'VIC-06', label: 'Parks Ute 06', driver: 'R. Thompson', route: 'outerEast', speedLimit: 70, baseSpeed: 62 },
-  { id: 'VIC-07', label: 'Depot Van 07', driver: 'L. Chen', route: 'westGate', speedLimit: 70, baseSpeed: 55 },
-  { id: 'VIC-08', label: 'Depot Van 08', driver: 'A. Kovac', route: 'westGate', speedLimit: 70, baseSpeed: 48 },
-  { id: 'VIC-09', label: 'Maintenance 09', driver: 'P. O\'Brien', route: 'northCorridor', speedLimit: 60, baseSpeed: 40 },
-  { id: 'VIC-10', label: 'Maintenance 10', driver: 'N. Patel', route: 'northCorridor', speedLimit: 60, baseSpeed: 53 },
+  { id: 'VIC-01', label: 'Council Truck 01', driver: 'J. Ahmed', route: 'cbdLoop', speedLimit: 50, baseSpeed: 38, fuelType: 'diesel', consumptionPer100: 14, idleRatePerHour: 1.3, startingOdometerKm: 62000, regoOffsetDays: 45 },
+  { id: 'VIC-02', label: 'Council Truck 02', driver: 'S. Nguyen', route: 'cbdLoop', speedLimit: 50, baseSpeed: 42, fuelType: 'diesel', consumptionPer100: 14, idleRatePerHour: 1.3, startingOdometerKm: 58000, regoOffsetDays: 210 },
+  { id: 'VIC-03', label: 'Waste Collection 03', driver: 'M. Ricci', route: 'bayside', speedLimit: 60, baseSpeed: 50, fuelType: 'diesel', consumptionPer100: 22, idleRatePerHour: 2.0, startingOdometerKm: 91000, regoOffsetDays: -5 },
+  { id: 'VIC-04', label: 'Waste Collection 04', driver: 'K. Walsh', route: 'bayside', speedLimit: 60, baseSpeed: 44, fuelType: 'diesel', consumptionPer100: 21, idleRatePerHour: 1.9, startingOdometerKm: 88000, regoOffsetDays: 15 },
+  { id: 'VIC-05', label: 'Parks Ute 05', driver: 'D. Singh', route: 'outerEast', speedLimit: 70, baseSpeed: 58, fuelType: 'petrol', consumptionPer100: 10, idleRatePerHour: 0.9, startingOdometerKm: 34000, regoOffsetDays: 300 },
+  { id: 'VIC-06', label: 'Parks Ute 06', driver: 'R. Thompson', route: 'outerEast', speedLimit: 70, baseSpeed: 62, fuelType: 'petrol', consumptionPer100: 9.5, idleRatePerHour: 0.85, startingOdometerKm: 29000, regoOffsetDays: 260 },
+  { id: 'VIC-07', label: 'Depot Van 07', driver: 'L. Chen', route: 'westGate', speedLimit: 70, baseSpeed: 55, fuelType: 'ev', consumptionPer100: 21, idleRatePerHour: 1.0, startingOdometerKm: 18000, regoOffsetDays: 320 },
+  { id: 'VIC-08', label: 'Depot Van 08', driver: 'A. Kovac', route: 'westGate', speedLimit: 70, baseSpeed: 48, fuelType: 'ev', consumptionPer100: 22, idleRatePerHour: 1.1, startingOdometerKm: 15000, regoOffsetDays: 340 },
+  { id: 'VIC-09', label: 'Maintenance 09', driver: 'P. O\'Brien', route: 'northCorridor', speedLimit: 60, baseSpeed: 40, fuelType: 'petrol', consumptionPer100: 11, idleRatePerHour: 1.0, startingOdometerKm: 71000, regoOffsetDays: 8 },
+  { id: 'VIC-10', label: 'Maintenance 10', driver: 'N. Patel', route: 'northCorridor', speedLimit: 60, baseSpeed: 53, fuelType: 'petrol', consumptionPer100: 10.5, idleRatePerHour: 0.95, startingOdometerKm: 66000, regoOffsetDays: 180 },
 ];
+
+const SERVICE_INTERVAL_KM = 10000;
 
 const GEOFENCES = [
   { id: 'gf_cbd_depot', name: 'CBD Depot Yard', lat: -37.8136, lng: 144.9631, radiusM: 600, type: 'depot' },
@@ -125,6 +134,7 @@ const TRIP_POINTS_MAX = 300;
 function initVehicles() {
   for (const v of VEHICLES) {
     const route = ROUTES[v.route];
+    const regoExpiryDate = new Date(Date.now() + v.regoOffsetDays * 86400000).toISOString().slice(0, 10);
     state.vehicles.set(v.id, {
       ...v,
       segIndex: 0,
@@ -138,9 +148,36 @@ function initVehicles() {
       odometerKm: 0,
       lastGeofence: new Set(),
       updatedAt: nowIso(),
+      // Emissions & utilisation
+      fuelUsedTotal: 0, // litres (diesel/petrol) or kWh (ev)
+      co2KgTotal: 0,
+      movingSec: 0,
+      idlingSec: 0,
+      tripCount: 0,
+      // Compliance
+      regoExpiryDate,
     });
     state.trips.set(v.id, []);
   }
+}
+
+const ALERT_SEVERITY_WEIGHT = { high: 8, medium: 4, low: 1, info: 0 };
+
+function safetyScore(vehicleId) {
+  const weight = state.alerts
+    .filter((a) => a.vehicleId === vehicleId)
+    .reduce((s, a) => s + (ALERT_SEVERITY_WEIGHT[a.severity] || 0), 0);
+  return Math.max(0, 100 - weight);
+}
+
+function daysUntil(dateStr) {
+  return Math.round((new Date(dateStr).getTime() - Date.now()) / 86400000);
+}
+
+function complianceStatus(days) {
+  if (days < 0) return 'overdue';
+  if (days <= 30) return 'due_soon';
+  return 'ok';
 }
 
 function pushAlert(alert) {
@@ -204,6 +241,10 @@ function tick() {
         v.status = 'idling';
         v.speedKmh = 0;
         v.updatedAt = nowIso();
+        v.idlingSec += TICK_MS / 1000;
+        const idleFuel = v.idleRatePerHour * (TICK_MS / 3600000);
+        v.fuelUsedTotal += idleFuel;
+        v.co2KgTotal += idleFuel * EMISSION_FACTORS_KG[v.fuelType];
         pushTripPoint(v.id, { t: v.updatedAt, lat: v.lat, lng: v.lng, speed: 0 });
         if (v.idleTicks === 3) {
           pushAlert({
@@ -275,6 +316,7 @@ function tick() {
       v.segT -= 1;
       v.odometerKm += segLenKm;
       v.segIndex = (v.segIndex + 1) % route.length;
+      if (v.segIndex === 0) v.tripCount += 1;
     }
 
     const seg2From = route[v.segIndex];
@@ -286,6 +328,11 @@ function tick() {
     v.lng = pos.lng;
     v.speedKmh = Math.round(speed);
     v.updatedAt = nowIso();
+    v.movingSec += TICK_MS / 1000;
+
+    const fuelUsed = kmPerTick * (v.consumptionPer100 / 100);
+    v.fuelUsedTotal += fuelUsed;
+    v.co2KgTotal += fuelUsed * EMISSION_FACTORS_KG[v.fuelType];
 
     pushTripPoint(v.id, { t: v.updatedAt, lat: v.lat, lng: v.lng, speed: v.speedKmh });
     checkGeofences(v);
@@ -295,19 +342,26 @@ function tick() {
 }
 
 function serializeVehicles() {
-  return Array.from(state.vehicles.values()).map((v) => ({
-    id: v.id,
-    label: v.label,
-    driver: v.driver,
-    lat: v.lat,
-    lng: v.lng,
-    speedKmh: v.speedKmh,
-    headingDeg: Math.round(v.headingDeg),
-    status: v.status,
-    speedLimit: v.speedLimit,
-    odometerKm: Math.round(v.odometerKm * 10) / 10,
-    updatedAt: v.updatedAt,
-  }));
+  return Array.from(state.vehicles.values()).map((v) => {
+    const totalSec = v.movingSec + v.idlingSec;
+    return {
+      id: v.id,
+      label: v.label,
+      driver: v.driver,
+      lat: v.lat,
+      lng: v.lng,
+      speedKmh: v.speedKmh,
+      headingDeg: Math.round(v.headingDeg),
+      status: v.status,
+      speedLimit: v.speedLimit,
+      odometerKm: Math.round(v.odometerKm * 10) / 10,
+      fuelType: v.fuelType,
+      co2Kg: Math.round(v.co2KgTotal * 10) / 10,
+      utilisationPct: totalSec ? Math.round((v.movingSec / totalSec) * 1000) / 10 : 0,
+      safetyScore: safetyScore(v.id),
+      updatedAt: v.updatedAt,
+    };
+  });
 }
 
 // ---------------------------------------------------------------------------
@@ -360,21 +414,35 @@ app.get('/api/reports/summary', (req, res) => {
   const avgSpeed =
     vehicles.reduce((s, v) => s + v.speedKmh, 0) / (vehicles.length || 1);
   const idling = vehicles.filter((v) => v.status === 'idling').length;
+  const totalCO2Kg = vehicles.reduce((s, v) => s + v.co2KgTotal, 0);
+  const avgUtilisation =
+    vehicles.reduce((s, v) => {
+      const total = v.movingSec + v.idlingSec;
+      return s + (total ? (v.movingSec / total) * 100 : 0);
+    }, 0) / (vehicles.length || 1);
 
   const alertCounts = {};
   for (const a of state.alerts) {
     alertCounts[a.type] = (alertCounts[a.type] || 0) + 1;
   }
 
-  const perVehicle = vehicles.map((v) => ({
-    id: v.id,
-    label: v.label,
-    driver: v.driver,
-    odometerKm: Math.round(v.odometerKm * 10) / 10,
-    status: v.status,
-    speedKmh: v.speedKmh,
-    alerts: state.alerts.filter((a) => a.vehicleId === v.id).length,
-  }));
+  const perVehicle = vehicles.map((v) => {
+    const total = v.movingSec + v.idlingSec;
+    return {
+      id: v.id,
+      label: v.label,
+      driver: v.driver,
+      odometerKm: Math.round(v.odometerKm * 10) / 10,
+      status: v.status,
+      speedKmh: v.speedKmh,
+      fuelType: v.fuelType,
+      co2Kg: Math.round(v.co2KgTotal * 10) / 10,
+      utilisationPct: total ? Math.round((v.movingSec / total) * 1000) / 10 : 0,
+      tripCount: v.tripCount,
+      safetyScore: safetyScore(v.id),
+      alerts: state.alerts.filter((a) => a.vehicleId === v.id).length,
+    };
+  });
 
   res.json({
     generatedAt: nowIso(),
@@ -383,9 +451,73 @@ app.get('/api/reports/summary', (req, res) => {
     avgSpeedKmh: Math.round(avgSpeed * 10) / 10,
     vehiclesIdling: idling,
     totalAlerts: state.alerts.length,
+    totalCO2Kg: Math.round(totalCO2Kg * 10) / 10,
+    avgUtilisationPct: Math.round(avgUtilisation * 10) / 10,
     alertCounts,
     perVehicle,
   });
+});
+
+app.get('/api/reports/emissions', (req, res) => {
+  const vehicles = Array.from(state.vehicles.values());
+  const totalCO2Kg = vehicles.reduce((s, v) => s + v.co2KgTotal, 0);
+  const totalFuelL = vehicles
+    .filter((v) => v.fuelType !== 'ev')
+    .reduce((s, v) => s + v.fuelUsedTotal, 0);
+  const totalEnergyKwh = vehicles
+    .filter((v) => v.fuelType === 'ev')
+    .reduce((s, v) => s + v.fuelUsedTotal, 0);
+
+  const byFuelType = {};
+  for (const v of vehicles) {
+    if (!byFuelType[v.fuelType]) byFuelType[v.fuelType] = { vehicles: 0, co2Kg: 0 };
+    byFuelType[v.fuelType].vehicles += 1;
+    byFuelType[v.fuelType].co2Kg += v.co2KgTotal;
+  }
+  for (const k of Object.keys(byFuelType)) {
+    byFuelType[k].co2Kg = Math.round(byFuelType[k].co2Kg * 10) / 10;
+  }
+
+  res.json({
+    generatedAt: nowIso(),
+    totalCO2Kg: Math.round(totalCO2Kg * 10) / 10,
+    totalFuelL: Math.round(totalFuelL * 10) / 10,
+    totalEnergyKwh: Math.round(totalEnergyKwh * 10) / 10,
+    byFuelType,
+    perVehicle: vehicles.map((v) => ({
+      id: v.id,
+      label: v.label,
+      fuelType: v.fuelType,
+      co2Kg: Math.round(v.co2KgTotal * 10) / 10,
+      fuelUsed: Math.round(v.fuelUsedTotal * 10) / 10,
+      unit: v.fuelType === 'ev' ? 'kWh' : 'L',
+      co2PerKm: v.odometerKm ? Math.round((v.co2KgTotal / v.odometerKm) * 1000) / 1000 : 0,
+    })),
+  });
+});
+
+app.get('/api/compliance', (req, res) => {
+  const vehicles = Array.from(state.vehicles.values());
+  res.json(
+    vehicles.map((v) => {
+      const kmTotal = v.startingOdometerKm + v.odometerKm;
+      const kmSinceService = kmTotal % SERVICE_INTERVAL_KM;
+      const kmToNextService = Math.round(SERVICE_INTERVAL_KM - kmSinceService);
+      const regoDays = daysUntil(v.regoExpiryDate);
+      return {
+        id: v.id,
+        label: v.label,
+        driver: v.driver,
+        safetyScore: safetyScore(v.id),
+        regoExpiryDate: v.regoExpiryDate,
+        regoDaysRemaining: regoDays,
+        regoStatus: complianceStatus(regoDays),
+        odometerKm: Math.round(kmTotal * 10) / 10,
+        kmToNextService,
+        serviceStatus: kmToNextService <= 1000 ? (kmToNextService < 0 ? 'overdue' : 'due_soon') : 'ok',
+      };
+    })
+  );
 });
 
 const server = http.createServer(app);

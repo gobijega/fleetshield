@@ -21,6 +21,7 @@ document.querySelectorAll('.tab-btn').forEach((btn) => {
     btn.classList.add('active');
     document.getElementById(`tab-${btn.dataset.tab}`).classList.add('active');
     if (btn.dataset.tab === 'reports') loadReports();
+    if (btn.dataset.tab === 'compliance') loadCompliance();
     if (btn.dataset.tab === 'map') setTimeout(() => map.invalidateSize(), 50);
   });
 });
@@ -40,7 +41,7 @@ function statusColor(status) {
 
 function upsertMarker(v) {
   let marker = state.markers.get(v.id);
-  const popupHtml = `<b>${v.label}</b><br/>Driver: ${v.driver}<br/>Speed: ${v.speedKmh} km/h (limit ${v.speedLimit})<br/>Status: ${v.status}<br/>Odometer: ${v.odometerKm} km`;
+  const popupHtml = `<b>${v.label}</b><br/>Driver: ${v.driver}<br/>Speed: ${v.speedKmh} km/h (limit ${v.speedLimit})<br/>Status: ${v.status}<br/>Odometer: ${v.odometerKm} km<br/>Fuel: ${v.fuelType.toUpperCase()} · CO2: ${v.co2Kg} kg<br/>Utilisation: ${v.utilisationPct}% · Safety: ${v.safetyScore}`;
   if (!marker) {
     marker = L.circleMarker([v.lat, v.lng], {
       radius: 7,
@@ -131,7 +132,7 @@ document.getElementById('alertFilter').addEventListener('change', (e) => {
 // ---------------------------------------------------------------------------
 // Reports
 // ---------------------------------------------------------------------------
-let alertChart, distanceChart;
+let alertChart, distanceChart, emissionsChart, utilisationChart;
 
 async function loadReports() {
   const res = await fetch('/api/reports/summary');
@@ -142,6 +143,8 @@ async function loadReports() {
     <div class="card"><div class="value">${data.totalDistanceKm}</div><div class="label">Total distance (km)</div></div>
     <div class="card"><div class="value">${data.avgSpeedKmh}</div><div class="label">Avg speed (km/h)</div></div>
     <div class="card"><div class="value">${data.vehiclesIdling}</div><div class="label">Vehicles idling</div></div>
+    <div class="card"><div class="value">${data.avgUtilisationPct}%</div><div class="label">Avg utilisation</div></div>
+    <div class="card"><div class="value">${data.totalCO2Kg}</div><div class="label">Total CO2 (kg)</div></div>
     <div class="card"><div class="value">${data.totalAlerts}</div><div class="label">Total alerts</div></div>
   `;
 
@@ -179,19 +182,82 @@ async function loadReports() {
     },
   });
 
+  if (emissionsChart) emissionsChart.destroy();
+  emissionsChart = new Chart(document.getElementById('emissionsChart'), {
+    type: 'bar',
+    data: {
+      labels: data.perVehicle.map((v) => v.id),
+      datasets: [{ label: 'kg CO2', data: data.perVehicle.map((v) => v.co2Kg), backgroundColor: '#f2a93b' }],
+    },
+    options: {
+      plugins: { legend: { display: false } },
+      scales: {
+        x: { ticks: { color: '#8b98af' }, grid: { color: '#2a3549' } },
+        y: { ticks: { color: '#8b98af' }, grid: { color: '#2a3549' } },
+      },
+    },
+  });
+
+  if (utilisationChart) utilisationChart.destroy();
+  utilisationChart = new Chart(document.getElementById('utilisationChart'), {
+    type: 'bar',
+    data: {
+      labels: data.perVehicle.map((v) => v.id),
+      datasets: [{ label: '%', data: data.perVehicle.map((v) => v.utilisationPct), backgroundColor: '#4f8cff' }],
+    },
+    options: {
+      plugins: { legend: { display: false } },
+      scales: {
+        x: { ticks: { color: '#8b98af' }, grid: { color: '#2a3549' } },
+        y: { min: 0, max: 100, ticks: { color: '#8b98af' }, grid: { color: '#2a3549' } },
+      },
+    },
+  });
+
   document.getElementById('vehicleSummaryRows').innerHTML = data.perVehicle
     .map(
       (v) => `
       <tr>
         <td>${v.label}</td>
         <td>${v.driver}</td>
+        <td>${v.fuelType.toUpperCase()}</td>
         <td><span class="status-pill status-${v.status}">${v.status}</span></td>
         <td>${v.speedKmh} km/h</td>
         <td>${v.odometerKm}</td>
+        <td>${v.utilisationPct}%</td>
+        <td>${v.co2Kg}</td>
         <td>${v.alerts}</td>
       </tr>`
     )
     .join('');
+}
+
+// ---------------------------------------------------------------------------
+// Compliance
+// ---------------------------------------------------------------------------
+async function loadCompliance() {
+  const res = await fetch('/api/compliance');
+  const rows = await res.json();
+  document.getElementById('complianceRows').innerHTML = rows
+    .map(
+      (v) => `
+      <tr>
+        <td>${v.label}</td>
+        <td>${v.driver}</td>
+        <td>${v.safetyScore}</td>
+        <td>${v.regoExpiryDate} (${v.regoDaysRemaining}d)</td>
+        <td><span class="sev sev-${complianceSev(v.regoStatus)}">${v.regoStatus.replace('_', ' ')}</span></td>
+        <td>${v.kmToNextService} km</td>
+        <td><span class="sev sev-${complianceSev(v.serviceStatus)}">${v.serviceStatus.replace('_', ' ')}</span></td>
+      </tr>`
+    )
+    .join('');
+}
+
+function complianceSev(status) {
+  if (status === 'overdue') return 'high';
+  if (status === 'due_soon') return 'medium';
+  return 'good';
 }
 
 // ---------------------------------------------------------------------------

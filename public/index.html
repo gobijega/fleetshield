@@ -27,6 +27,7 @@
   <button class="tab-btn" data-tab="alerts">Alerts <span class="badge" id="alertCount">0</span></button>
   <button class="tab-btn" data-tab="reports">Reports</button>
   <button class="tab-btn" data-tab="geofences">Geofencing</button>
+  <button class="tab-btn" data-tab="compliance">Compliance</button>
 </nav>
 
 <main>
@@ -74,11 +75,21 @@
         <canvas id="distanceChart" height="220"></canvas>
       </div>
     </div>
+    <div class="reports-grid">
+      <div class="chart-card">
+        <h3>CO2 Emissions by Vehicle (kg)</h3>
+        <canvas id="emissionsChart" height="220"></canvas>
+      </div>
+      <div class="chart-card">
+        <h3>Utilisation by Vehicle (%)</h3>
+        <canvas id="utilisationChart" height="220"></canvas>
+      </div>
+    </div>
     <h3>Per-Vehicle Summary</h3>
     <div class="alert-table-wrap">
       <table class="alert-table" id="vehicleSummaryTable">
         <thead>
-          <tr><th>Vehicle</th><th>Driver</th><th>Status</th><th>Speed</th><th>Distance (km)</th><th>Alerts</th></tr>
+          <tr><th>Vehicle</th><th>Driver</th><th>Fuel</th><th>Status</th><th>Speed</th><th>Distance (km)</th><th>Utilisation</th><th>CO2 (kg)</th><th>Alerts</th></tr>
         </thead>
         <tbody id="vehicleSummaryRows"></tbody>
       </table>
@@ -104,6 +115,19 @@
         </label>
         <button type="submit">Add Geofence</button>
       </form>
+    </div>
+  </section>
+
+  <section id="tab-compliance" class="tab-panel">
+    <h2>Safety &amp; Compliance</h2>
+    <p class="hint">Driver safety scores (based on alert history), vehicle registration status, and service due dates — supports GMW's fleet safety &amp; compliance requirements.</p>
+    <div class="alert-table-wrap">
+      <table class="alert-table" id="complianceTable">
+        <thead>
+          <tr><th>Vehicle</th><th>Driver</th><th>Safety Score</th><th>Rego Expiry</th><th>Rego Status</th><th>Service Due</th><th>Service Status</th></tr>
+        </thead>
+        <tbody id="complianceRows"></tbody>
+      </table>
     </div>
   </section>
 </main>
