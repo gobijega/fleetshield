@@ -89,12 +89,31 @@ Before the server will boot, `.env` also needs `ADMIN_USERNAME`, `ADMIN_PASSWORD
 these gate the whole dashboard behind a login page. See `.env.example`.
 
 Then open **http://localhost:3000** — it'll redirect to the login page first. On first
-boot the server seeds the 10-vehicle fleet and 3 geofences into the database; on every
-subsequent boot it restores where the fleet
-left off instead of starting from zero.
+boot the server seeds the 10-vehicle fleet and 3 geofences into the database, and also
+backfills ~14 days of realistic simulated operating history (distance, fuel/CO2,
+utilisation, and a spread of alerts) per vehicle, so the **Reports tab has real numbers
+to show immediately** instead of starting at zero and building up over hours of live
+ticking. On every subsequent boot the fleet restores where it left off instead of
+re-seeding.
 
 No Docker available? You can still run the server against any reachable Postgres —
 just point `DATABASE_URL` at it (see `.env.example`) and run `npm run migrate` once.
+
+### Topping up an already-running deployment
+
+The automatic backfill above only fires once, on a brand-new/empty database. If a
+deployment (e.g. the live Render/Timescale instance) has been running a short while and
+Reports still looks sparse, add more simulated history on demand:
+
+```
+npm run backfill                 # adds ~14 more simulated days
+npm run backfill -- --days=21    # adds ~21 more simulated days
+```
+
+This reads each vehicle's current totals and adds a synthetic increment on top, so it's
+safe to run against real accumulated data — it never overwrites anything. **Restart the
+server afterwards** so it picks up the new totals (it only re-reads cumulative state
+from the database on boot).
 
 ## Deploying it for real
 

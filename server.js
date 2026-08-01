@@ -27,6 +27,17 @@ const path = require('path');
 const { WebSocketServer } = require('ws');
 const db = require('./db');
 const { sessionMiddleware, attachAuthRoutes, requireAuth, verifyWsClient } = require('./auth');
+const {
+  ROUTES,
+  EMISSION_FACTORS_KG,
+  SERVICE_INTERVAL_KM,
+  SEED_VEHICLES,
+  SEED_GEOFENCES,
+  haversineKm,
+  uid,
+  nowIso,
+} = require('./lib/fleet-data');
+const { backfillVehicleHistory, backfillAlerts } = require('./lib/backfill');
 
 const PORT = process.env.PORT || 3000;
 const TICK_MS = 2000; // simulation heartbeat
@@ -34,103 +45,14 @@ const TICK_MS = 2000; // simulation heartbeat
 // ---------------------------------------------------------------------------
 // Utilities
 // ---------------------------------------------------------------------------
-
-function haversineKm(a, b) {
-  const R = 6371;
-  const dLat = ((b.lat - a.lat) * Math.PI) / 180;
-  const dLng = ((b.lng - a.lng) * Math.PI) / 180;
-  const lat1 = (a.lat * Math.PI) / 180;
-  const lat2 = (b.lat * Math.PI) / 180;
-  const h =
-    Math.sin(dLat / 2) ** 2 +
-    Math.cos(lat1) * Math.cos(lat2) * Math.sin(dLng / 2) ** 2;
-  return 2 * R * Math.asin(Math.sqrt(h));
-}
+// haversineKm / uid / nowIso / ROUTES / EMISSION_FACTORS_KG / SEED_VEHICLES /
+// SEED_GEOFENCES / SERVICE_INTERVAL_KM now live in ./lib/fleet-data so the
+// backfill script can reuse the exact same fleet/route data without booting
+// the full server.
 
 function lerp(a, b, t) {
   return { lat: a.lat + (b.lat - a.lat) * t, lng: a.lng + (b.lng - a.lng) * t };
 }
-
-function uid(prefix) {
-  return `${prefix}_${Math.random().toString(36).slice(2, 9)}`;
-}
-
-function nowIso() {
-  return new Date().toISOString();
-}
-
-// ---------------------------------------------------------------------------
-// Fleet & route definitions (Melbourne metro, VIC — matches tender region)
-// ---------------------------------------------------------------------------
-
-const ROUTES = {
-  cbdLoop: [
-    { lat: -37.8136, lng: 144.9631 }, // Melbourne CBD (depot)
-    { lat: -37.8226, lng: 144.9648 }, // Southbank
-    { lat: -37.8199, lng: 144.9834 }, // East Melbourne
-    { lat: -37.8076, lng: 144.9605 }, // Carlton
-    { lat: -37.8136, lng: 144.9631 },
-  ],
-  bayside: [
-    { lat: -37.8467, lng: 144.9789 }, // St Kilda (depot)
-    { lat: -37.8679, lng: 144.9878 }, // Elwood
-    { lat: -37.9014, lng: 145.0011 }, // Brighton
-    { lat: -37.8679, lng: 144.9878 },
-    { lat: -37.8467, lng: 144.9789 },
-  ],
-  outerEast: [
-    { lat: -37.8199, lng: 145.2119 }, // Ringwood (depot)
-    { lat: -37.8300, lng: 145.2700 }, // Bayswater
-    { lat: -37.7986, lng: 145.3011 }, // Croydon
-    { lat: -37.8300, lng: 145.2700 },
-    { lat: -37.8199, lng: 145.2119 },
-  ],
-  westGate: [
-    { lat: -37.8317, lng: 144.8907 }, // Footscray (depot)
-    { lat: -37.8397, lng: 144.8306 }, // Sunshine
-    { lat: -37.8664, lng: 144.7663 }, // Deer Park
-    { lat: -37.8397, lng: 144.8306 },
-    { lat: -37.8317, lng: 144.8907 },
-  ],
-  northCorridor: [
-    { lat: -37.7080, lng: 144.9648 }, // Preston (depot)
-    { lat: -37.6790, lng: 144.9958 }, // Reservoir
-    { lat: -37.6510, lng: 145.0201 }, // South Morang
-    { lat: -37.6790, lng: 144.9958 },
-    { lat: -37.7080, lng: 144.9648 },
-  ],
-};
-
-// Fuel/energy consumption + emission-factor profile per vehicle. Consumption is
-// L/100km for diesel & petrol, kWh/100km for EVs; idle rate is per hour in the
-// same unit. Emission factors are kg CO2-e per litre (diesel/petrol, tailpipe)
-// or per kWh (EV, using an average grid-intensity factor for well-to-wheel
-// reporting) — standard approach for fleet emissions/ESG reporting.
-const EMISSION_FACTORS_KG = { diesel: 2.68, petrol: 2.31, ev: 0.85 };
-
-// Seed data — only used to populate the database the first time it's empty.
-// After that, the `vehicles` table in Postgres is the source of truth; edit
-// rows there (or re-seed) rather than this array to change the fleet.
-const SEED_VEHICLES = [
-  { id: 'VIC-01', label: 'Council Truck 01', driver: 'J. Ahmed', route: 'cbdLoop', speedLimit: 50, baseSpeed: 38, fuelType: 'diesel', consumptionPer100: 14, idleRatePerHour: 1.3, startingOdometerKm: 62000, regoOffsetDays: 45 },
-  { id: 'VIC-02', label: 'Council Truck 02', driver: 'S. Nguyen', route: 'cbdLoop', speedLimit: 50, baseSpeed: 42, fuelType: 'diesel', consumptionPer100: 14, idleRatePerHour: 1.3, startingOdometerKm: 58000, regoOffsetDays: 210 },
-  { id: 'VIC-03', label: 'Waste Collection 03', driver: 'M. Ricci', route: 'bayside', speedLimit: 60, baseSpeed: 50, fuelType: 'diesel', consumptionPer100: 22, idleRatePerHour: 2.0, startingOdometerKm: 91000, regoOffsetDays: -5 },
-  { id: 'VIC-04', label: 'Waste Collection 04', driver: 'K. Walsh', route: 'bayside', speedLimit: 60, baseSpeed: 44, fuelType: 'diesel', consumptionPer100: 21, idleRatePerHour: 1.9, startingOdometerKm: 88000, regoOffsetDays: 15 },
-  { id: 'VIC-05', label: 'Parks Ute 05', driver: 'D. Singh', route: 'outerEast', speedLimit: 70, baseSpeed: 58, fuelType: 'petrol', consumptionPer100: 10, idleRatePerHour: 0.9, startingOdometerKm: 34000, regoOffsetDays: 300 },
-  { id: 'VIC-06', label: 'Parks Ute 06', driver: 'R. Thompson', route: 'outerEast', speedLimit: 70, baseSpeed: 62, fuelType: 'petrol', consumptionPer100: 9.5, idleRatePerHour: 0.85, startingOdometerKm: 29000, regoOffsetDays: 260 },
-  { id: 'VIC-07', label: 'Depot Van 07', driver: 'L. Chen', route: 'westGate', speedLimit: 70, baseSpeed: 55, fuelType: 'ev', consumptionPer100: 21, idleRatePerHour: 1.0, startingOdometerKm: 18000, regoOffsetDays: 320 },
-  { id: 'VIC-08', label: 'Depot Van 08', driver: 'A. Kovac', route: 'westGate', speedLimit: 70, baseSpeed: 48, fuelType: 'ev', consumptionPer100: 22, idleRatePerHour: 1.1, startingOdometerKm: 15000, regoOffsetDays: 340 },
-  { id: 'VIC-09', label: 'Maintenance 09', driver: "P. O'Brien", route: 'northCorridor', speedLimit: 60, baseSpeed: 40, fuelType: 'petrol', consumptionPer100: 11, idleRatePerHour: 1.0, startingOdometerKm: 71000, regoOffsetDays: 8 },
-  { id: 'VIC-10', label: 'Maintenance 10', driver: 'N. Patel', route: 'northCorridor', speedLimit: 60, baseSpeed: 53, fuelType: 'petrol', consumptionPer100: 10.5, idleRatePerHour: 0.95, startingOdometerKm: 66000, regoOffsetDays: 180 },
-];
-
-const SEED_GEOFENCES = [
-  { id: 'gf_cbd_depot', name: 'CBD Depot Yard', lat: -37.8136, lng: 144.9631, radiusM: 600, type: 'depot' },
-  { id: 'gf_restricted_dock', name: 'Restricted Zone – Docklands', lat: -37.8155, lng: 144.9470, radiusM: 900, type: 'restricted' },
-  { id: 'gf_bayside_depot', name: 'Bayside Depot', lat: -37.8467, lng: 144.9789, radiusM: 500, type: 'depot' },
-];
-
-const SERVICE_INTERVAL_KM = 10000;
 
 // How often (in ticks) to persist a position row per vehicle. At TICK_MS=2000
 // and DB_WRITE_EVERY_N_TICKS=1, that's 10 vehicles x 1 row / 2s ≈ 5 rows/sec
@@ -190,6 +112,19 @@ async function ensureSeedData() {
         [v.id, v.label, v.driver, v.route, v.speedLimit, v.baseSpeed, v.fuelType, v.consumptionPer100, v.idleRatePerHour, v.startingOdometerKm, regoExpiryDate]
       );
     }
+
+    // Fresh install — the Reports tab reads live cumulative counters that
+    // would otherwise start at zero and take days of real ticking to look
+    // meaningful. Backfill ~14 days of realistic simulated operating
+    // history (position totals + a spread of alerts) so Reports has
+    // something to show from the very first load. Safe to call here only
+    // because this whole block is gated on "vehicles table was empty" —
+    // it won't re-run and pile up extra history on every restart.
+    console.log('Backfilling ~14 days of simulated fleet history for Reports...');
+    const backfillSummary = await backfillVehicleHistory(db, SEED_VEHICLES, { days: 14 });
+    const alertsInserted = await backfillAlerts(db, SEED_VEHICLES, { days: 14 });
+    const totalKm = backfillSummary.reduce((s, v) => s + v.addedKm, 0);
+    console.log(`Backfill complete: ~${totalKm} km and ${alertsInserted} alerts across ${backfillSummary.length} vehicles.`);
   }
 
   const { rows: gRows } = await db.query('SELECT count(*)::int AS n FROM geofences');
