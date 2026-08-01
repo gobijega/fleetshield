@@ -34,9 +34,15 @@
 
       <form id="mfaForm" class="hidden">
         <div id="mfaStep">
-          <label>Authenticator code
-            <input type="text" id="mfaCode" name="mfaCode" inputmode="numeric" pattern="[0-9]*" autocomplete="one-time-code" maxlength="6" required placeholder="123456" />
-          </label>
+          <div class="otp-label">Enter the 6-digit code from your authenticator app</div>
+          <div class="otp-row" id="otpRow">
+            <input type="text" class="otp-box" inputmode="numeric" pattern="[0-9]*" maxlength="1" autocomplete="one-time-code" aria-label="Digit 1" />
+            <input type="text" class="otp-box" inputmode="numeric" pattern="[0-9]*" maxlength="1" aria-label="Digit 2" />
+            <input type="text" class="otp-box" inputmode="numeric" pattern="[0-9]*" maxlength="1" aria-label="Digit 3" />
+            <input type="text" class="otp-box" inputmode="numeric" pattern="[0-9]*" maxlength="1" aria-label="Digit 4" />
+            <input type="text" class="otp-box" inputmode="numeric" pattern="[0-9]*" maxlength="1" aria-label="Digit 5" />
+            <input type="text" class="otp-box" inputmode="numeric" pattern="[0-9]*" maxlength="1" aria-label="Digit 6" />
+          </div>
           <button type="submit" id="mfaBtn">Verify</button>
           <div class="login-error" id="mfaError"></div>
         </div>

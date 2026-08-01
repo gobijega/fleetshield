@@ -76,7 +76,7 @@ body {
   letter-spacing: 0.04em;
 }
 
-#loginForm { text-align: left; }
+#loginForm, #mfaForm { text-align: left; }
 
 #loginForm label {
   display: block;
@@ -106,7 +106,7 @@ body {
   box-shadow: 0 0 0 1px var(--accent);
 }
 
-#loginForm button {
+#loginForm button, #mfaForm button {
   width: 100%;
   margin-top: 6px;
   background: var(--accent);
@@ -120,9 +120,53 @@ body {
   padding: 12px;
   cursor: pointer;
   border-radius: 2px;
+  transition: background 0.15s, opacity 0.15s;
 }
-#loginForm button:hover { background: #3fe066; }
-#loginForm button:disabled { opacity: 0.6; cursor: default; }
+#loginForm button:hover, #mfaForm button:hover { background: #3fe066; }
+#loginForm button:disabled, #mfaForm button:disabled { opacity: 0.6; cursor: default; }
+
+/* --- MFA: segmented 6-digit code input --- */
+.otp-label {
+  font-family: 'IBM Plex Mono', monospace;
+  font-size: 11.5px;
+  letter-spacing: 0.03em;
+  color: var(--muted);
+  margin-bottom: 18px;
+  line-height: 1.5;
+}
+
+.otp-row {
+  display: flex;
+  justify-content: space-between;
+  gap: 8px;
+  margin-bottom: 22px;
+}
+
+.otp-box {
+  width: 100%;
+  aspect-ratio: 1 / 1;
+  min-width: 0;
+  background: var(--bg);
+  border: 1px solid var(--border);
+  border-radius: 4px;
+  color: var(--text);
+  font-family: 'IBM Plex Mono', monospace;
+  font-size: 22px;
+  font-weight: 600;
+  text-align: center;
+  padding: 0;
+  caret-color: var(--accent);
+  transition: border-color 0.15s, box-shadow 0.15s;
+}
+.otp-box:focus {
+  outline: none;
+  border-color: var(--accent);
+  box-shadow: 0 0 0 1px var(--accent), 0 0 12px rgba(0, 255, 65, 0.25);
+}
+.otp-box.filled { border-color: var(--border-bright); }
+/* Hide the native up/down spinners some browsers add to numeric-mode inputs */
+.otp-box::-webkit-inner-spin-button,
+.otp-box::-webkit-outer-spin-button { -webkit-appearance: none; margin: 0; }
 
 .login-error {
   margin-top: 14px;
@@ -149,4 +193,6 @@ body {
 /* Inputs under 16px trigger an unwanted auto-zoom on focus in iOS Safari. */
 @media (max-width: 600px) {
   #loginForm input { font-size: 16px; }
+  .otp-row { gap: 6px; }
+  .otp-box { font-size: 18px; }
 }
