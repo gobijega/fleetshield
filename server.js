@@ -26,6 +26,7 @@ const http = require('http');
 const path = require('path');
 const { WebSocketServer } = require('ws');
 const db = require('./db');
+const { sessionMiddleware, attachAuthRoutes, requireAuth, verifyWsClient } = require('./auth');
 
 const PORT = process.env.PORT || 3000;
 const TICK_MS = 2000; // simulation heartbeat
@@ -506,8 +507,26 @@ function serializeVehicles() {
 // ---------------------------------------------------------------------------
 
 const app = express();
+app.set('trust proxy', 1); // required for secure session cookies behind Render/Cloudflare
 app.use(express.json());
+app.use(sessionMiddleware);
+
+// Login page + its assets (login.html, login.css, /brand/*) are intentionally
+// public — everything else in this file is gated by requireAuth below.
 app.use(express.static(path.join(__dirname, 'public')));
+attachAuthRoutes(app);
+
+app.get('/api/health', async (req, res) => {
+  try {
+    await db.query('SELECT 1');
+    res.json({ ok: true, db: 'connected' });
+  } catch (err) {
+    res.status(503).json({ ok: false, db: 'unreachable', error: err.message });
+  }
+});
+
+app.use(requireAuth);
+app.use(express.static(path.join(__dirname, 'protected')));
 
 app.get('/api/vehicles', (req, res) => {
   res.json(serializeVehicles());
@@ -742,17 +761,8 @@ app.get('/api/compliance', (req, res) => {
   );
 });
 
-app.get('/api/health', async (req, res) => {
-  try {
-    await db.query('SELECT 1');
-    res.json({ ok: true, db: 'connected' });
-  } catch (err) {
-    res.status(503).json({ ok: false, db: 'unreachable', error: err.message });
-  }
-});
-
 const server = http.createServer(app);
-const wss = new WebSocketServer({ server, path: '/ws' });
+const wss = new WebSocketServer({ server, path: '/ws', verifyClient: verifyWsClient });
 
 function broadcast(payload) {
   const msg = JSON.stringify(payload);

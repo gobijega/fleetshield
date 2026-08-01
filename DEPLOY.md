@@ -26,15 +26,40 @@ Two accounts, both free to start. ~15 minutes.
    (GitHub sign-in is the quickest — it also handles repo access).
 3. Click **New** → **Blueprint**, and select the `fleetshield` repo. Render will detect
    `render.yaml` and show you the `fleetshield` web service it defines.
-4. Before deploying, set the `DATABASE_URL` environment variable to the Timescale
-   connection string from step 1.4. (`render.yaml` marks it `sync: false` deliberately —
-   secrets like this shouldn't live in the repo.)
+4. Before deploying, set these environment variables in the Render dashboard
+   (`render.yaml` marks them `sync: false` deliberately — secrets shouldn't live in the
+   repo):
+   - `DATABASE_URL` — the Timescale connection string from step 1.4.
+   - `ADMIN_USERNAME` — whatever username you want to log in with.
+   - `ADMIN_PASSWORD_HASH` — generate this locally first: `npm run hash-password -- "your-password"`,
+     then paste the output (a `$2b$...` bcrypt hash, not the plain password) here.
+   - `SESSION_SECRET` is handled for you — `render.yaml` sets `generateValue: true`, so
+     Render generates and stores a random one automatically.
 5. Click **Apply** / **Deploy**. Render will:
    - run `npm install` (build),
    - run `npm run migrate` (pre-deploy — creates the tables + hypertable in Timescale),
    - run `npm start` (boot the server, which seeds the 10-vehicle fleet on first run).
 6. Once it's live, open `https://<your-service>.onrender.com/api/health` — you should
-   see `{"ok":true,"db":"connected"}`. Then open the root URL for the dashboard itself.
+   see `{"ok":true,"db":"connected"}`. Then open the root URL — it should redirect you to
+   `/login.html`. Sign in with the username/password you set above.
+
+## 3. Custom domain — Cloudflare
+
+If you bought a domain through Cloudflare and want it pointing at this app instead of
+(or alongside) `jegasec.com`:
+
+1. **Render side**: your service → **Settings** → **Custom Domains** → **Add Custom
+   Domain**. Enter something like `fleet.jegasec.com`. Render shows you a CNAME target
+   (looks like `<your-service>.onrender.com`).
+2. **Cloudflare side**: DNS → **Add record** → type `CNAME`, name `fleet` (or whatever
+   subdomain you chose), target the hostname Render gave you, proxy status **Proxied**
+   (orange cloud) — Cloudflare's proxy supports WebSockets on every plan, including
+   free, so live vehicle updates will keep working through it.
+3. **SSL/TLS mode**: same setup as `jegasec.com` — SSL/TLS → Overview → set to **Full**
+   or **Full (strict)**, and turn on **Always Use HTTPS** under Edge Certificates. Render
+   issues its own certificate for the custom domain automatically once DNS resolves.
+4. Give it a few minutes for DNS to propagate, then visit `https://fleet.jegasec.com` —
+   you should land on the login page.
 
 ## Notes for a tender / client demo
 
@@ -46,9 +71,10 @@ Two accounts, both free to start. ~15 minutes.
   service goes read-only. `render.yaml` sets `DB_WRITE_EVERY_N_TICKS=3` to throttle
   position-write volume by default — raise it further, or upgrade the Timescale plan,
   if you run it for days at a time.
-- **Custom domain**: Render → your service → Settings → Custom Domains. You could route
-  something like `fleet.jegasec.com` here the same way `jegasec.com` was pointed at
-  Cloudflare — a CNAME to Render's provided hostname.
 - **Re-seeding**: the fleet only seeds itself once, when the `vehicles` table is empty.
   To reset demo data, drop the tables in Timescale's SQL console and redeploy (or just
   wait for the pre-deploy migration to re-run against empty tables).
+- **Admin login**: there's a single admin account (see step 2.4) protecting the whole
+  dashboard, API, and live WebSocket feed. Rotate the password by re-running
+  `npm run hash-password -- "new-password"` and updating `ADMIN_PASSWORD_HASH` in Render
+  — no redeploy needed, just save the env var and Render restarts the service.

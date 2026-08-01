@@ -1,6 +1,18 @@
-// Vehicle Telematics Solution — MVP frontend
+// Fleet Shield — JEGASEC
 // Connects to the backend over WebSocket for live positions/alerts,
 // and REST for geofences + reports.
+
+// Session-aware fetch wrapper — if the session has expired server-side,
+// every API call starts 401ing; bounce back to the login page instead of
+// silently failing.
+async function authedFetch(url, options) {
+  const res = await fetch(url, options);
+  if (res.status === 401) {
+    window.location.href = '/login.html';
+    throw new Error('unauthenticated');
+  }
+  return res;
+}
 
 const state = {
   vehicles: new Map(),
@@ -135,7 +147,7 @@ document.getElementById('alertFilter').addEventListener('change', (e) => {
 let alertChart, distanceChart, emissionsChart, utilisationChart;
 
 async function loadReports() {
-  const res = await fetch('/api/reports/summary');
+  const res = await authedFetch('/api/reports/summary');
   const data = await res.json();
 
   document.getElementById('summaryCards').innerHTML = `
@@ -236,7 +248,7 @@ async function loadReports() {
 // Compliance
 // ---------------------------------------------------------------------------
 async function loadCompliance() {
-  const res = await fetch('/api/compliance');
+  const res = await authedFetch('/api/compliance');
   const rows = await res.json();
   document.getElementById('complianceRows').innerHTML = rows
     .map(
@@ -279,7 +291,7 @@ function renderGeofenceList() {
     .join('');
   list.querySelectorAll('button[data-id]').forEach((btn) => {
     btn.addEventListener('click', async () => {
-      await fetch(`/api/geofences/${btn.dataset.id}`, { method: 'DELETE' });
+      await authedFetch(`/api/geofences/${btn.dataset.id}`, { method: 'DELETE' });
       state.geofences = state.geofences.filter((g) => g.id !== btn.dataset.id);
       renderGeofenceList();
       renderGeofences();
@@ -296,7 +308,7 @@ document.getElementById('geofenceForm').addEventListener('submit', async (e) => 
     radiusM: parseFloat(document.getElementById('gfRadius').value),
     type: document.getElementById('gfType').value,
   };
-  const res = await fetch('/api/geofences', {
+  const res = await authedFetch('/api/geofences', {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify(body),

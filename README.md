@@ -37,8 +37,13 @@ Mapped against Goulburn-Murray Water's stated purpose for this tender:
   (odometer, fuel/CO2 used, moving/idling time) are restored from the database on boot,
   so a restart or redeploy doesn't lose fleet history — only the in-memory `state`
   object is a hot cache for the simulation tick and live WebSocket push.
-- **Frontend** (`public/`): plain HTML/CSS/JS, no build step. Leaflet for the map,
+- **Frontend** (`protected/`): plain HTML/CSS/JS, no build step. Leaflet for the map,
   Chart.js for reporting charts, connected to the backend via WebSocket + `fetch`.
+  Branded as **Fleet Shield** (JEGASEC's fleet-security product) — black/matrix-green
+  theme, IBM Plex Mono, matching the main jegasec.com site.
+- **Auth** (`auth.js`, `public/login.html`): a single admin account (env-configured,
+  bcrypt-hashed password) gates the dashboard, the REST API, and the live WebSocket
+  feed via a signed session cookie. See `README`'s "Running it locally" for setup.
 
 This mirrors how a production system would be laid out — a device/telemetry ingestion
 service, a durable data layer, an API + real-time layer, and a dashboard — just with the
@@ -53,12 +58,19 @@ cd telematics-mvp
 docker compose up -d       # starts Postgres + TimescaleDB on localhost:5432
 cp .env.example .env       # local DB connection, no SSL
 npm install
+npm run hash-password -- "your-password"   # copy the output into .env as ADMIN_PASSWORD_HASH
 npm run migrate            # creates tables + hypertable
 npm start
 ```
 
-Then open **http://localhost:3000**. On first boot the server seeds the 10-vehicle fleet
-and 3 geofences into the database; on every subsequent boot it restores where the fleet
+Before the server will boot, `.env` also needs `ADMIN_USERNAME`, `ADMIN_PASSWORD_HASH`
+(from the command above), and `SESSION_SECRET` (any random string — e.g.
+`node -e "console.log(require('crypto').randomBytes(32).toString('hex'))"`) filled in;
+these gate the whole dashboard behind a login page. See `.env.example`.
+
+Then open **http://localhost:3000** — it'll redirect to the login page first. On first
+boot the server seeds the 10-vehicle fleet and 3 geofences into the database; on every
+subsequent boot it restores where the fleet
 left off instead of starting from zero.
 
 No Docker available? You can still run the server against any reachable Postgres —

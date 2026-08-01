@@ -15,3 +15,9 @@ services:
         value: "3"    # throttles position writes to protect free-tier DB storage
       - key: NODE_VERSION
         value: 20.18.0
+      - key: ADMIN_USERNAME
+        sync: false   # set in the Render dashboard
+      - key: ADMIN_PASSWORD_HASH
+        sync: false   # output of: npm run hash-password -- "your-password"
+      - key: SESSION_SECRET
+        generateValue: true   # Render generates and stores a random secret for you

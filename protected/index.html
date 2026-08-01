@@ -3,22 +3,29 @@
 <head>
 <meta charset="utf-8" />
 <meta name="viewport" content="width=device-width, initial-scale=1" />
-<title>Vehicle Telematics Solution — Fleet Dashboard (MVP)</title>
+<title>Fleet Shield — JEGASEC</title>
+<link rel="icon" href="/brand/favicon.svg" type="image/svg+xml" />
+<link rel="preconnect" href="https://fonts.googleapis.com" />
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+<link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&family=IBM+Plex+Mono:wght@400;500;600&display=swap" rel="stylesheet" />
 <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/leaflet/1.9.4/leaflet.min.css" />
 <link rel="stylesheet" href="style.css" />
 </head>
 <body>
 <header class="topbar">
   <div class="brand">
-    <span class="brand-dot"></span>
-    <div>
-      <h1>Vehicle Telematics Solution</h1>
-      <p>Fleet Dashboard — MVP demo (simulated data)</p>
-    </div>
+    <a class="brand-logo" href="/">
+      <span class="cursor">_</span>JEGA<span class="sec">SEC</span>
+    </a>
+    <span class="brand-div"></span>
+    <span class="brand-product">Fleet Shield</span>
   </div>
-  <div class="conn" id="connStatus">
-    <span class="dot" id="connDot"></span>
-    <span id="connText">Connecting…</span>
+  <div style="display:flex; align-items:center; gap: 18px;">
+    <div class="conn" id="connStatus">
+      <span class="dot" id="connDot"></span>
+      <span id="connText">Connecting…</span>
+    </div>
+    <button class="brand-logout" id="logoutBtn">Log out</button>
   </div>
 </header>
 
@@ -134,6 +141,12 @@
 
 <script src="https://cdnjs.cloudflare.com/ajax/libs/leaflet/1.9.4/leaflet.min.js"></script>
 <script src="https://cdnjs.cloudflare.com/ajax/libs/Chart.js/4.4.4/chart.umd.min.js"></script>
+<script>
+  document.getElementById('logoutBtn').addEventListener('click', async () => {
+    await fetch('/api/logout', { method: 'POST' });
+    window.location.href = '/login.html';
+  });
+</script>
 <script src="app.js"></script>
 </body>
 </html>
