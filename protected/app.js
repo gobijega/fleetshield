@@ -47,6 +47,15 @@ L.tileLayer('https://{s}.basemaps.cartocdn.com/dark_all/{z}/{x}/{y}{r}.png', {
   maxZoom: 19,
 }).addTo(map);
 
+// Keep the map filling its container correctly across phone/tablet
+// orientation changes and window resizes (in addition to the tab-switch
+// invalidateSize() call above, which handles the display:none case).
+let resizeTimer;
+window.addEventListener('resize', () => {
+  clearTimeout(resizeTimer);
+  resizeTimer = setTimeout(() => map.invalidateSize(), 150);
+});
+
 function statusColor(status) {
   return status === 'idling' ? '#f2a93b' : '#35c26f';
 }

@@ -136,4 +136,16 @@ body {
   font-size: 11px;
   color: var(--muted);
   letter-spacing: 0.04em;
+  text-align: center;
+}
+
+@media (max-width: 420px) {
+  .login-wrap { padding: 16px; }
+  .login-card { padding: 32px 22px; }
+  .login-logo { font-size: 21px; }
+}
+
+/* Inputs under 16px trigger an unwanted auto-zoom on focus in iOS Safari. */
+@media (max-width: 600px) {
+  #loginForm input { font-size: 16px; }
 }
