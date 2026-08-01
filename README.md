@@ -1,14 +1,34 @@
-# Vehicle Telematics Solution — MVP
+# Fleet Shield — Hardware-Agnostic Fleet Telematics Middleware
 
-A working demo of the software layer behind a fleet telematics platform: live vehicle
-tracking, driver-behaviour alerts, geofencing/compliance, and fleet reporting. Vehicle
-GPS data is simulated (10 vehicles moving on routes around Melbourne, VIC) so the whole
-stack runs standalone with no hardware or device integration required — the ingestion
-layer is the one piece that would be swapped for a real device/API feed in production.
+Fleet Shield is a **hardware-agnostic middleware platform**, not a hardware product. It
+sits between whatever GPS/telematics hardware a fleet already has fitted — OBD-II
+dongles, Teltonika, Queclink, Digital Matter, or any device/API that can push a position
+feed — and turns that raw data into the safety, compliance, utilisation, and emissions
+picture that local councils, utilities, and government entities are accountable for.
+The pitch to these organisations is deliberately not "rip out your existing hardware and
+buy ours": if a fleet already has trackers installed, Fleet Shield ingests that feed
+directly; if it doesn't, any compatible off-the-shelf device works. Either way, the
+value is the software layer, not a proprietary box.
+
+This repo is a working demo of that software layer: live vehicle tracking,
+driver-behaviour alerts, geofencing/compliance, and fleet reporting. Vehicle GPS data is
+currently simulated (10 vehicles moving on routes around Melbourne, VIC) so the whole
+stack runs standalone with no hardware integration required yet — the ingestion layer is
+the one piece that gets pointed at a real device/API feed in production, per the
+"Extending toward production" section below.
+
+## Who it's for
+
+Local councils, water/utility authorities, and other government entities that operate
+vehicle fleets and are accountable for how those fleets are used — typically already
+running some mix of telematics hardware across depots, and needing a single software
+layer over the top for compliance reporting, safety, and emissions, rather than another
+hardware contract.
 
 ## What it demonstrates
 
-Mapped against Goulburn-Murray Water's stated purpose for this tender:
+Mapped against Goulburn-Murray Water's stated purpose for this tender (representative of
+the broader council/utility/government use case):
 
 - **Fleet safety & compliance** — driver-behaviour alerts (harsh braking, harsh
   acceleration, speeding, excessive idling), a per-vehicle safety score derived from
@@ -102,10 +122,21 @@ messages.
 
 ## Extending toward production
 
-- Swap the simulator in `tick()` for a real ingestion endpoint (device webhook, MQTT
-  broker, or OEM API) feeding the same vehicle state shape.
-- Add authentication, multi-tenant fleet scoping, and role-based access.
+- Swap the simulator in `tick()` for a real ingestion layer — device webhook, MQTT
+  broker, or OEM API — feeding the same vehicle state shape. Because the pipeline is
+  hardware-agnostic by design, this should support multiple concurrent hardware
+  vendors/protocols per fleet (a council rarely has one uniform hardware base across
+  every depot), not just one.
+- Add authentication, multi-tenant fleet scoping, and role-based access — each council/
+  utility/government customer is its own tenant with its own fleet, users, and data.
 - Add polygon geofences (currently circular), historical route playback on the map, and
   maintenance/fuel-cost reporting to match the tender's full scope.
 - Add PostGIS if/when geospatial queries (route matching, polygon containment) outgrow
   simple radius checks.
+
+**Note on hardware:** an earlier line of exploration looked at a custom-manufactured
+Fleet Shield tracker (Nordic nRF9151-based) as a proprietary hardware product. That's
+parked, not active roadmap — it doesn't fit the middleware positioning above. Fleet
+Shield's value is the ingestion/correlation/reporting software working across whatever
+hardware a customer already has or chooses, not a hardware SKU JEGASEC has to
+manufacture and support.
