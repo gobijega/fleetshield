@@ -5,8 +5,11 @@ services:
     name: fleetshield
     runtime: node
     plan: free
-    buildCommand: npm install
-    preDeployCommand: npm run migrate
+    # preDeployCommand would be cleaner for this, but it's a paid-plan-only
+    # Render feature — folding the migration into the build step instead.
+    # Safe to run on every deploy: the migration SQL is idempotent
+    # (CREATE ... IF NOT EXISTS throughout).
+    buildCommand: npm install && npm run migrate
     startCommand: npm start
     envVars:
       - key: DATABASE_URL

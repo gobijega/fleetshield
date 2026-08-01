@@ -36,8 +36,9 @@ Two accounts, both free to start. ~15 minutes.
    - `SESSION_SECRET` is handled for you — `render.yaml` sets `generateValue: true`, so
      Render generates and stores a random one automatically.
 5. Click **Apply** / **Deploy**. Render will:
-   - run `npm install` (build),
-   - run `npm run migrate` (pre-deploy — creates the tables + hypertable in Timescale),
+   - run `npm install && npm run migrate` (build — installs deps, then creates the tables
+     + hypertable in Timescale; folded into the build step since `preDeployCommand` is a
+     paid-plan-only Render feature and the migration is safe to (re-)run on every build),
    - run `npm start` (boot the server, which seeds the 10-vehicle fleet on first run).
 6. Once it's live, open `https://<your-service>.onrender.com/api/health` — you should
    see `{"ok":true,"db":"connected"}`. Then open the root URL — it should redirect you to
