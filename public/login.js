@@ -59,9 +59,36 @@ function focusBox(i) {
   if (otpBoxes[i]) otpBoxes[i].focus();
 }
 
+// Shared by paste and by multi-digit autofill (some password managers'
+// built-in TOTP autofill sets a box's value to the full code in one go
+// rather than firing a paste event — this handles both the same way,
+// starting from wherever the digits landed).
+function distribute(digits, startIdx) {
+  digits.split('').forEach((d, j) => {
+    if (otpBoxes[startIdx + j]) {
+      otpBoxes[startIdx + j].value = d;
+      otpBoxes[startIdx + j].classList.add('filled');
+    }
+  });
+  focusBox(Math.min(startIdx + digits.length, otpBoxes.length - 1));
+  if (otpValue().length === otpBoxes.length) {
+    mfaForm.requestSubmit();
+  }
+}
+
 otpBoxes.forEach((box, i) => {
   box.addEventListener('input', () => {
-    box.value = box.value.replace(/[^0-9]/g, '').slice(0, 1);
+    const raw = box.value.replace(/[^0-9]/g, '');
+    if (raw.length > 1) {
+      // Autofill (or a fast paste-as-typing) dropped more than one digit
+      // into a single box — redistribute across the remaining boxes
+      // instead of silently truncating to the first character.
+      box.value = '';
+      box.classList.remove('filled');
+      distribute(raw.slice(0, otpBoxes.length - i), i);
+      return;
+    }
+    box.value = raw.slice(0, 1);
     box.classList.toggle('filled', box.value !== '');
     if (box.value && i < otpBoxes.length - 1) {
       focusBox(i + 1);
@@ -88,18 +115,7 @@ otpBoxes.forEach((box, i) => {
   box.addEventListener('paste', (e) => {
     e.preventDefault();
     const digits = (e.clipboardData.getData('text') || '').replace(/[^0-9]/g, '').slice(0, otpBoxes.length);
-    if (!digits) return;
-    digits.split('').forEach((d, j) => {
-      if (otpBoxes[j]) {
-        otpBoxes[j].value = d;
-        otpBoxes[j].classList.add('filled');
-      }
-    });
-    const next = Math.min(digits.length, otpBoxes.length - 1);
-    focusBox(next);
-    if (digits.length === otpBoxes.length) {
-      mfaForm.requestSubmit();
-    }
+    if (digits) distribute(digits, 0);
   });
 });
 
