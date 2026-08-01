@@ -140,7 +140,13 @@
 </main>
 
 <script src="https://cdnjs.cloudflare.com/ajax/libs/leaflet/1.9.4/leaflet.min.js"></script>
-<script src="https://cdnjs.cloudflare.com/ajax/libs/Chart.js/4.4.4/chart.umd.min.js"></script>
+<!-- Self-hosted, not CDN: the cdnjs path for Chart.js 4.4.4's minified UMD
+     build (chart.umd.min.js) doesn't actually exist — the npm package only
+     ships an unminified chart.umd.js, so that CDN reference 404'd silently
+     and left `Chart` undefined, breaking the Reports tab's charts. Vendoring
+     the real file removes the dependency on a third-party CDN for this
+     asset entirely. -->
+<script src="vendor/chart.umd.js"></script>
 <script>
   document.getElementById('logoutBtn').addEventListener('click', async () => {
     await fetch('/api/logout', { method: 'POST' });
