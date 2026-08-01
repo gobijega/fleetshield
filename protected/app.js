@@ -47,14 +47,22 @@ L.tileLayer('https://{s}.basemaps.cartocdn.com/dark_all/{z}/{x}/{y}{r}.png', {
   maxZoom: 19,
 }).addTo(map);
 
-// Keep the map filling its container correctly across phone/tablet
-// orientation changes and window resizes (in addition to the tab-switch
-// invalidateSize() call above, which handles the display:none case).
-let resizeTimer;
-window.addEventListener('resize', () => {
-  clearTimeout(resizeTimer);
-  resizeTimer = setTimeout(() => map.invalidateSize(), 150);
-});
+// Leaflet sizes its tile grid from the #map container's dimensions at the
+// moment it's told to recalculate. On phones the container can be the
+// wrong size right at page load (webfonts still loading, flex layout not
+// yet settled) and since the map tab is active by default, the tab-switch
+// invalidateSize() call above never fires to correct it — the map is just
+// blank. A ResizeObserver on the container itself fixes this for every
+// case that matters: it fires once immediately with the size at the time
+// observation starts (covers the initial-load mis-size), and again on any
+// later layout change (orientation flips, resizes, font reflow), without
+// having to guess which browser event is responsible.
+const mapEl = document.getElementById('map');
+let mapResizeTimer;
+new ResizeObserver(() => {
+  clearTimeout(mapResizeTimer);
+  mapResizeTimer = setTimeout(() => map.invalidateSize(), 100);
+}).observe(mapEl);
 
 function statusColor(status) {
   return status === 'idling' ? '#f2a93b' : '#35c26f';

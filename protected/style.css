@@ -312,7 +312,12 @@ main { padding: 20px 24px 40px; max-width: 1400px; margin: 0 auto; }
   .tab-btn { padding: 10px 12px; font-size: 12.5px; white-space: nowrap; flex-shrink: 0; }
 
   .map-layout { flex-direction: column; }
-  #map { height: 380px; width: 100%; }
+  /* #map has flex:1 (flex-basis:0) in the base rule for the desktop
+     row layout, where the main axis is horizontal. Once .map-layout
+     switches to column here, the main axis becomes vertical and that
+     flex-basis:0 wins over the height below, collapsing the map to
+     ~0px. flex:none forces the explicit height to actually apply. */
+  #map { flex: none; height: 380px; width: 100%; }
   .vehicle-list { width: 100%; height: 280px; }
 
   .reports-grid { flex-direction: column; }
