@@ -1,0 +1,22 @@
+# Local development / testing database. Mirrors what Timescale Cloud gives
+# you in production — same Postgres + TimescaleDB extension, just self-hosted.
+#
+# Usage:
+#   docker compose up -d
+#   npm run migrate
+#   npm start
+services:
+  db:
+    image: timescale/timescaledb-ha:pg16
+    restart: unless-stopped
+    environment:
+      POSTGRES_USER: fleetshield
+      POSTGRES_PASSWORD: fleetshield_dev
+      POSTGRES_DB: fleetshield
+    ports:
+      - "5432:5432"
+    volumes:
+      - fleetshield_db_data:/home/postgres/pgdata/data
+
+volumes:
+  fleetshield_db_data:

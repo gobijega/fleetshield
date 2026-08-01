@@ -1,0 +1,17 @@
+# Render Blueprint — see DEPLOY.md for the full walkthrough.
+# Deploy with: Render dashboard -> New -> Blueprint -> select this repo.
+services:
+  - type: web
+    name: fleetshield
+    runtime: node
+    plan: free
+    buildCommand: npm install
+    preDeployCommand: npm run migrate
+    startCommand: npm start
+    envVars:
+      - key: DATABASE_URL
+        sync: false   # paste your Timescale Cloud connection string in the Render dashboard
+      - key: DB_WRITE_EVERY_N_TICKS
+        value: "3"    # throttles position writes to protect free-tier DB storage
+      - key: NODE_VERSION
+        value: 20.18.0

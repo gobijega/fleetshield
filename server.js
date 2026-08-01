@@ -2,19 +2,30 @@
  * Vehicle Telematics Solution — MVP backend
  *
  * Simulates a fleet of vehicles moving along real-world-style routes,
- * generates driver-behaviour events, evaluates geofences, stores trip
- * history, and streams live updates to connected dashboards over
- * WebSocket while exposing a REST API for alerts, geofences, and reports.
+ * generates driver-behaviour events, evaluates geofences, and streams live
+ * updates to connected dashboards over WebSocket while exposing a REST API
+ * for alerts, geofences, and reports.
+ *
+ * Persistence: fleet configuration, geofences, alert history, and every
+ * position tick are stored in Postgres/TimescaleDB. On boot, each vehicle's
+ * cumulative counters (odometer, fuel/CO2 used, moving/idling time, trip
+ * count) are restored from its latest stored row, so a restart doesn't lose
+ * fleet history — only the DB is the source of truth for anything that
+ * needs to survive a redeploy. The in-memory `state` object below is a hot
+ * cache for the 2s simulation tick and live WebSocket push, kept in sync
+ * with the database on every write.
  *
  * No real hardware/device feed is required — this demonstrates the
  * software layer (ingestion, processing, alerting, reporting, live map)
  * that a real telematics deployment would sit on top of.
  */
 
+require('dotenv').config();
 const express = require('express');
 const http = require('http');
 const path = require('path');
 const { WebSocketServer } = require('ws');
+const db = require('./db');
 
 const PORT = process.env.PORT || 3000;
 const TICK_MS = 2000; // simulation heartbeat
@@ -96,7 +107,10 @@ const ROUTES = {
 // reporting) — standard approach for fleet emissions/ESG reporting.
 const EMISSION_FACTORS_KG = { diesel: 2.68, petrol: 2.31, ev: 0.85 };
 
-const VEHICLES = [
+// Seed data — only used to populate the database the first time it's empty.
+// After that, the `vehicles` table in Postgres is the source of truth; edit
+// rows there (or re-seed) rather than this array to change the fleet.
+const SEED_VEHICLES = [
   { id: 'VIC-01', label: 'Council Truck 01', driver: 'J. Ahmed', route: 'cbdLoop', speedLimit: 50, baseSpeed: 38, fuelType: 'diesel', consumptionPer100: 14, idleRatePerHour: 1.3, startingOdometerKm: 62000, regoOffsetDays: 45 },
   { id: 'VIC-02', label: 'Council Truck 02', driver: 'S. Nguyen', route: 'cbdLoop', speedLimit: 50, baseSpeed: 42, fuelType: 'diesel', consumptionPer100: 14, idleRatePerHour: 1.3, startingOdometerKm: 58000, regoOffsetDays: 210 },
   { id: 'VIC-03', label: 'Waste Collection 03', driver: 'M. Ricci', route: 'bayside', speedLimit: 60, baseSpeed: 50, fuelType: 'diesel', consumptionPer100: 22, idleRatePerHour: 2.0, startingOdometerKm: 91000, regoOffsetDays: -5 },
@@ -105,61 +119,36 @@ const VEHICLES = [
   { id: 'VIC-06', label: 'Parks Ute 06', driver: 'R. Thompson', route: 'outerEast', speedLimit: 70, baseSpeed: 62, fuelType: 'petrol', consumptionPer100: 9.5, idleRatePerHour: 0.85, startingOdometerKm: 29000, regoOffsetDays: 260 },
   { id: 'VIC-07', label: 'Depot Van 07', driver: 'L. Chen', route: 'westGate', speedLimit: 70, baseSpeed: 55, fuelType: 'ev', consumptionPer100: 21, idleRatePerHour: 1.0, startingOdometerKm: 18000, regoOffsetDays: 320 },
   { id: 'VIC-08', label: 'Depot Van 08', driver: 'A. Kovac', route: 'westGate', speedLimit: 70, baseSpeed: 48, fuelType: 'ev', consumptionPer100: 22, idleRatePerHour: 1.1, startingOdometerKm: 15000, regoOffsetDays: 340 },
-  { id: 'VIC-09', label: 'Maintenance 09', driver: 'P. O\'Brien', route: 'northCorridor', speedLimit: 60, baseSpeed: 40, fuelType: 'petrol', consumptionPer100: 11, idleRatePerHour: 1.0, startingOdometerKm: 71000, regoOffsetDays: 8 },
+  { id: 'VIC-09', label: 'Maintenance 09', driver: "P. O'Brien", route: 'northCorridor', speedLimit: 60, baseSpeed: 40, fuelType: 'petrol', consumptionPer100: 11, idleRatePerHour: 1.0, startingOdometerKm: 71000, regoOffsetDays: 8 },
   { id: 'VIC-10', label: 'Maintenance 10', driver: 'N. Patel', route: 'northCorridor', speedLimit: 60, baseSpeed: 53, fuelType: 'petrol', consumptionPer100: 10.5, idleRatePerHour: 0.95, startingOdometerKm: 66000, regoOffsetDays: 180 },
 ];
 
-const SERVICE_INTERVAL_KM = 10000;
-
-const GEOFENCES = [
+const SEED_GEOFENCES = [
   { id: 'gf_cbd_depot', name: 'CBD Depot Yard', lat: -37.8136, lng: 144.9631, radiusM: 600, type: 'depot' },
   { id: 'gf_restricted_dock', name: 'Restricted Zone – Docklands', lat: -37.8155, lng: 144.9470, radiusM: 900, type: 'restricted' },
   { id: 'gf_bayside_depot', name: 'Bayside Depot', lat: -37.8467, lng: 144.9789, radiusM: 500, type: 'depot' },
 ];
 
+const SERVICE_INTERVAL_KM = 10000;
+
+// How often (in ticks) to persist a position row per vehicle. At TICK_MS=2000
+// and DB_WRITE_EVERY_N_TICKS=1, that's 10 vehicles x 1 row / 2s ≈ 5 rows/sec
+// (~430k rows/day) — comfortably within what TimescaleDB is built for, but
+// easy to throttle down for a small/free-tier database.
+const DB_WRITE_EVERY_N_TICKS = parseInt(process.env.DB_WRITE_EVERY_N_TICKS || '1', 10);
+
 // ---------------------------------------------------------------------------
-// Simulation state
+// Simulation state (hot cache — mirrors Postgres, restored from it on boot)
 // ---------------------------------------------------------------------------
 
 const state = {
   vehicles: new Map(), // id -> live state
-  alerts: [], // most recent first, capped
-  trips: new Map(), // vehicleId -> array of {t, lat, lng, speed}
-  geofences: GEOFENCES,
+  alerts: [], // most recent first, capped — fast cache for WS init/broadcast
+  geofences: [],
 };
 
 const ALERTS_MAX = 500;
-const TRIP_POINTS_MAX = 300;
-
-function initVehicles() {
-  for (const v of VEHICLES) {
-    const route = ROUTES[v.route];
-    const regoExpiryDate = new Date(Date.now() + v.regoOffsetDays * 86400000).toISOString().slice(0, 10);
-    state.vehicles.set(v.id, {
-      ...v,
-      segIndex: 0,
-      segT: Math.random(), // stagger starting positions along the loop
-      lat: route[0].lat,
-      lng: route[0].lng,
-      speedKmh: 0,
-      headingDeg: 0,
-      status: 'moving', // moving | idling
-      idleTicks: 0,
-      odometerKm: 0,
-      lastGeofence: new Set(),
-      updatedAt: nowIso(),
-      // Emissions & utilisation
-      fuelUsedTotal: 0, // litres (diesel/petrol) or kWh (ev)
-      co2KgTotal: 0,
-      movingSec: 0,
-      idlingSec: 0,
-      tripCount: 0,
-      // Compliance
-      regoExpiryDate,
-    });
-    state.trips.set(v.id, []);
-  }
-}
+let tickCounter = 0;
 
 const ALERT_SEVERITY_WEIGHT = { high: 8, medium: 4, low: 1, info: 0 };
 
@@ -180,18 +169,126 @@ function complianceStatus(days) {
   return 'ok';
 }
 
+// ---------------------------------------------------------------------------
+// Database bootstrap: seed if empty, then load + restore cumulative state
+// ---------------------------------------------------------------------------
+
+async function ensureSeedData() {
+  const { rows: vRows } = await db.query('SELECT count(*)::int AS n FROM vehicles');
+  if (vRows[0].n === 0) {
+    console.log('vehicles table empty — seeding from SEED_VEHICLES...');
+    for (const v of SEED_VEHICLES) {
+      const regoExpiryDate = new Date(Date.now() + v.regoOffsetDays * 86400000)
+        .toISOString()
+        .slice(0, 10);
+      await db.query(
+        `INSERT INTO vehicles
+          (id, label, driver, route, speed_limit, base_speed, fuel_type, consumption_per_100, idle_rate_per_hour, starting_odometer_km, rego_expiry_date)
+         VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11)
+         ON CONFLICT (id) DO NOTHING`,
+        [v.id, v.label, v.driver, v.route, v.speedLimit, v.baseSpeed, v.fuelType, v.consumptionPer100, v.idleRatePerHour, v.startingOdometerKm, regoExpiryDate]
+      );
+    }
+  }
+
+  const { rows: gRows } = await db.query('SELECT count(*)::int AS n FROM geofences');
+  if (gRows[0].n === 0) {
+    console.log('geofences table empty — seeding from SEED_GEOFENCES...');
+    for (const g of SEED_GEOFENCES) {
+      await db.query(
+        `INSERT INTO geofences (id, name, lat, lng, radius_m, type) VALUES ($1,$2,$3,$4,$5,$6)
+         ON CONFLICT (id) DO NOTHING`,
+        [g.id, g.name, g.lat, g.lng, g.radiusM, g.type]
+      );
+    }
+  }
+}
+
+async function loadVehiclesFromDb() {
+  const { rows } = await db.query('SELECT * FROM vehicles ORDER BY id');
+  return rows.map((r) => ({
+    id: r.id,
+    label: r.label,
+    driver: r.driver,
+    route: r.route,
+    speedLimit: r.speed_limit,
+    baseSpeed: r.base_speed,
+    fuelType: r.fuel_type,
+    consumptionPer100: Number(r.consumption_per_100),
+    idleRatePerHour: Number(r.idle_rate_per_hour),
+    startingOdometerKm: Number(r.starting_odometer_km),
+    regoExpiryDate: r.rego_expiry_date.toISOString().slice(0, 10),
+  }));
+}
+
+async function loadGeofencesFromDb() {
+  const { rows } = await db.query('SELECT * FROM geofences ORDER BY created_at');
+  return rows.map((g) => ({
+    id: g.id,
+    name: g.name,
+    lat: Number(g.lat),
+    lng: Number(g.lng),
+    radiusM: g.radius_m,
+    type: g.type,
+  }));
+}
+
+async function restoreLatestPosition(vehicleId) {
+  const { rows } = await db.query(
+    `SELECT * FROM positions WHERE vehicle_id = $1 ORDER BY ts DESC LIMIT 1`,
+    [vehicleId]
+  );
+  return rows[0] || null;
+}
+
+async function initVehicles(vehicleConfigs) {
+  for (const v of vehicleConfigs) {
+    const route = ROUTES[v.route];
+    const last = await restoreLatestPosition(v.id);
+    state.vehicles.set(v.id, {
+      ...v,
+      segIndex: 0,
+      segT: Math.random(), // stagger starting positions along the loop
+      lat: route[0].lat,
+      lng: route[0].lng,
+      speedKmh: 0,
+      headingDeg: 0,
+      status: 'moving', // moving | idling
+      idleTicks: 0,
+      lastGeofence: new Set(),
+      updatedAt: nowIso(),
+      // Cumulative counters — restored from the last persisted row if one
+      // exists, so a restart continues the fleet's history instead of
+      // resetting it to zero.
+      odometerKm: last ? Number(last.odometer_km) : 0,
+      fuelUsedTotal: last ? Number(last.fuel_used_total) : 0,
+      co2KgTotal: last ? Number(last.co2_kg_total) : 0,
+      movingSec: last ? Number(last.moving_sec_total) : 0,
+      idlingSec: last ? Number(last.idling_sec_total) : 0,
+      tripCount: last ? last.trip_count : 0,
+    });
+  }
+}
+
+// ---------------------------------------------------------------------------
+// Alerts
+// ---------------------------------------------------------------------------
+
 function pushAlert(alert) {
   const full = { id: uid('al'), t: nowIso(), ...alert };
   state.alerts.unshift(full);
   if (state.alerts.length > ALERTS_MAX) state.alerts.length = ALERTS_MAX;
   broadcast({ type: 'alert', alert: full });
-  return full;
-}
 
-function pushTripPoint(vehicleId, point) {
-  const arr = state.trips.get(vehicleId);
-  arr.push(point);
-  if (arr.length > TRIP_POINTS_MAX) arr.shift();
+  // Durable write-through — fire and forget so the simulation loop never
+  // blocks on the database. Failures are logged, not thrown.
+  db.query(
+    `INSERT INTO alerts (id, ts, vehicle_id, vehicle_label, type, severity, message, geofence_id, lat, lng)
+     VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10)`,
+    [full.id, full.t, full.vehicleId || null, full.vehicleLabel || null, full.type, full.severity, full.message || null, full.geofenceId || null, full.lat ?? null, full.lng ?? null]
+  ).catch((err) => console.error('Failed to persist alert', err.message));
+
+  return full;
 }
 
 function checkGeofences(v) {
@@ -228,7 +325,28 @@ function checkGeofences(v) {
   }
 }
 
+// ---------------------------------------------------------------------------
+// Simulation tick
+// ---------------------------------------------------------------------------
+
+function persistPositions(rows) {
+  if (rows.length === 0) return;
+  const cols = ['ts', 'vehicle_id', 'lat', 'lng', 'speed_kmh', 'heading_deg', 'status', 'odometer_km', 'fuel_used_total', 'co2_kg_total', 'moving_sec_total', 'idling_sec_total', 'trip_count'];
+  const values = [];
+  const placeholders = rows.map((r, i) => {
+    const base = i * cols.length;
+    values.push(r.ts, r.vehicleId, r.lat, r.lng, r.speedKmh, r.headingDeg, r.status, r.odometerKm, r.fuelUsedTotal, r.co2KgTotal, r.movingSec, r.idlingSec, r.tripCount);
+    return `(${cols.map((_, j) => `$${base + j + 1}`).join(',')})`;
+  });
+  const sql = `INSERT INTO positions (${cols.join(',')}) VALUES ${placeholders.join(',')}`;
+  db.query(sql, values).catch((err) => console.error('Failed to persist positions batch', err.message));
+}
+
 function tick() {
+  tickCounter += 1;
+  const shouldPersist = tickCounter % DB_WRITE_EVERY_N_TICKS === 0;
+  const positionRows = [];
+
   for (const v of state.vehicles.values()) {
     const route = ROUTES[v.route];
     const from = route[v.segIndex];
@@ -245,7 +363,7 @@ function tick() {
         const idleFuel = v.idleRatePerHour * (TICK_MS / 3600000);
         v.fuelUsedTotal += idleFuel;
         v.co2KgTotal += idleFuel * EMISSION_FACTORS_KG[v.fuelType];
-        pushTripPoint(v.id, { t: v.updatedAt, lat: v.lat, lng: v.lng, speed: 0 });
+        if (shouldPersist) positionRows.push(snapshotRow(v));
         if (v.idleTicks === 3) {
           pushAlert({
             type: 'excessive_idling',
@@ -334,11 +452,30 @@ function tick() {
     v.fuelUsedTotal += fuelUsed;
     v.co2KgTotal += fuelUsed * EMISSION_FACTORS_KG[v.fuelType];
 
-    pushTripPoint(v.id, { t: v.updatedAt, lat: v.lat, lng: v.lng, speed: v.speedKmh });
+    if (shouldPersist) positionRows.push(snapshotRow(v));
     checkGeofences(v);
   }
 
+  if (shouldPersist) persistPositions(positionRows);
   broadcast({ type: 'positions', vehicles: serializeVehicles() });
+}
+
+function snapshotRow(v) {
+  return {
+    ts: v.updatedAt,
+    vehicleId: v.id,
+    lat: v.lat,
+    lng: v.lng,
+    speedKmh: v.speedKmh,
+    headingDeg: v.headingDeg,
+    status: v.status,
+    odometerKm: v.odometerKm,
+    fuelUsedTotal: v.fuelUsedTotal,
+    co2KgTotal: v.co2KgTotal,
+    movingSec: v.movingSec,
+    idlingSec: v.idlingSec,
+    tripCount: v.tripCount,
+  };
 }
 
 function serializeVehicles() {
@@ -376,36 +513,121 @@ app.get('/api/vehicles', (req, res) => {
   res.json(serializeVehicles());
 });
 
-app.get('/api/vehicles/:id/trips', (req, res) => {
-  const trips = state.trips.get(req.params.id);
-  if (!trips) return res.status(404).json({ error: 'vehicle not found' });
-  res.json(trips);
+// Historical position query — reads straight from Postgres/TimescaleDB, so
+// this reflects real history and survives restarts (unlike the old in-memory
+// breadcrumb trail). Defaults to the last 2 hours, capped at 1000 points.
+app.get('/api/vehicles/:id/trips', async (req, res) => {
+  if (!state.vehicles.has(req.params.id)) {
+    return res.status(404).json({ error: 'vehicle not found' });
+  }
+  const hours = Math.min(parseFloat(req.query.hours) || 2, 168);
+  const limit = Math.min(parseInt(req.query.limit, 10) || 1000, 1000);
+  try {
+    const { rows } = await db.query(
+      `SELECT ts, lat, lng, speed_kmh FROM positions
+       WHERE vehicle_id = $1 AND ts > now() - ($2 || ' hours')::interval
+       ORDER BY ts ASC LIMIT $3`,
+      [req.params.id, hours, limit]
+    );
+    res.json(rows.map((r) => ({ t: r.ts, lat: Number(r.lat), lng: Number(r.lng), speed: Number(r.speed_kmh) })));
+  } catch (err) {
+    console.error(err);
+    res.status(500).json({ error: 'query failed' });
+  }
 });
 
-app.get('/api/alerts', (req, res) => {
-  const limit = Math.min(parseInt(req.query.limit, 10) || 50, ALERTS_MAX);
-  res.json(state.alerts.slice(0, limit));
+// Historical alert log from Postgres (not capped at the in-memory 500 like
+// before) — this is what actually survives a redeploy.
+app.get('/api/alerts', async (req, res) => {
+  const limit = Math.min(parseInt(req.query.limit, 10) || 50, 1000);
+  try {
+    const params = [limit];
+    let where = '';
+    if (req.query.vehicleId) {
+      params.push(req.query.vehicleId);
+      where = 'WHERE vehicle_id = $2';
+    }
+    const { rows } = await db.query(
+      `SELECT * FROM alerts ${where} ORDER BY ts DESC LIMIT $1`,
+      params
+    );
+    res.json(
+      rows.map((r) => ({
+        id: r.id,
+        t: r.ts,
+        vehicleId: r.vehicle_id,
+        vehicleLabel: r.vehicle_label,
+        type: r.type,
+        severity: r.severity,
+        message: r.message,
+        geofenceId: r.geofence_id,
+        lat: r.lat != null ? Number(r.lat) : null,
+        lng: r.lng != null ? Number(r.lng) : null,
+      }))
+    );
+  } catch (err) {
+    console.error(err);
+    res.status(500).json({ error: 'query failed' });
+  }
+});
+
+// Daily rollup per vehicle — demonstrates TimescaleDB-backed historical
+// reporting (distance, CO2, avg speed per day) that a live in-memory-only
+// server could never offer.
+app.get('/api/reports/daily/:vehicleId', async (req, res) => {
+  try {
+    const { rows } = await db.query(
+      `SELECT date_trunc('day', ts) AS day,
+              round((max(odometer_km) - min(odometer_km))::numeric, 1) AS km_travelled,
+              round((max(co2_kg_total) - min(co2_kg_total))::numeric, 1) AS co2_kg,
+              round(avg(speed_kmh)::numeric, 1) AS avg_speed_kmh
+       FROM positions
+       WHERE vehicle_id = $1
+       GROUP BY day
+       ORDER BY day DESC
+       LIMIT 30`,
+      [req.params.vehicleId]
+    );
+    res.json(rows);
+  } catch (err) {
+    console.error(err);
+    res.status(500).json({ error: 'query failed' });
+  }
 });
 
 app.get('/api/geofences', (req, res) => {
   res.json(state.geofences);
 });
 
-app.post('/api/geofences', (req, res) => {
+app.post('/api/geofences', async (req, res) => {
   const { name, lat, lng, radiusM, type } = req.body || {};
   if (!name || typeof lat !== 'number' || typeof lng !== 'number' || !radiusM) {
     return res.status(400).json({ error: 'name, lat, lng, radiusM are required' });
   }
   const gf = { id: uid('gf'), name, lat, lng, radiusM, type: type || 'custom' };
-  state.geofences.push(gf);
-  res.status(201).json(gf);
+  try {
+    await db.query(
+      `INSERT INTO geofences (id, name, lat, lng, radius_m, type) VALUES ($1,$2,$3,$4,$5,$6)`,
+      [gf.id, gf.name, gf.lat, gf.lng, gf.radiusM, gf.type]
+    );
+    state.geofences.push(gf);
+    res.status(201).json(gf);
+  } catch (err) {
+    console.error(err);
+    res.status(500).json({ error: 'insert failed' });
+  }
 });
 
-app.delete('/api/geofences/:id', (req, res) => {
-  const before = state.geofences.length;
-  state.geofences = state.geofences.filter((g) => g.id !== req.params.id);
-  for (const v of state.vehicles.values()) v.lastGeofence.delete(req.params.id);
-  res.json({ removed: before !== state.geofences.length });
+app.delete('/api/geofences/:id', async (req, res) => {
+  try {
+    const result = await db.query('DELETE FROM geofences WHERE id = $1', [req.params.id]);
+    state.geofences = state.geofences.filter((g) => g.id !== req.params.id);
+    for (const v of state.vehicles.values()) v.lastGeofence.delete(req.params.id);
+    res.json({ removed: result.rowCount > 0 });
+  } catch (err) {
+    console.error(err);
+    res.status(500).json({ error: 'delete failed' });
+  }
 });
 
 app.get('/api/reports/summary', (req, res) => {
@@ -520,6 +742,15 @@ app.get('/api/compliance', (req, res) => {
   );
 });
 
+app.get('/api/health', async (req, res) => {
+  try {
+    await db.query('SELECT 1');
+    res.json({ ok: true, db: 'connected' });
+  } catch (err) {
+    res.status(503).json({ ok: false, db: 'unreachable', error: err.message });
+  }
+});
+
 const server = http.createServer(app);
 const wss = new WebSocketServer({ server, path: '/ws' });
 
@@ -534,9 +765,40 @@ wss.on('connection', (ws) => {
   ws.send(JSON.stringify({ type: 'init', vehicles: serializeVehicles(), geofences: state.geofences, alerts: state.alerts.slice(0, 50) }));
 });
 
-initVehicles();
-setInterval(tick, TICK_MS);
+async function boot() {
+  await ensureSeedData();
+  const vehicleConfigs = await loadVehiclesFromDb();
+  state.geofences = await loadGeofencesFromDb();
+  await initVehicles(vehicleConfigs);
 
-server.listen(PORT, () => {
-  console.log(`Telematics MVP running at http://localhost:${PORT}`);
+  // Warm the in-memory alert cache from the DB so safety scores and the
+  // WebSocket init payload aren't empty right after a restart.
+  const { rows: recentAlerts } = await db.query(
+    'SELECT * FROM alerts ORDER BY ts DESC LIMIT $1',
+    [ALERTS_MAX]
+  );
+  state.alerts = recentAlerts.map((r) => ({
+    id: r.id,
+    t: r.ts,
+    vehicleId: r.vehicle_id,
+    vehicleLabel: r.vehicle_label,
+    type: r.type,
+    severity: r.severity,
+    message: r.message,
+    geofenceId: r.geofence_id,
+    lat: r.lat != null ? Number(r.lat) : null,
+    lng: r.lng != null ? Number(r.lng) : null,
+  }));
+
+  setInterval(tick, TICK_MS);
+
+  server.listen(PORT, () => {
+    console.log(`Telematics MVP running at http://localhost:${PORT}`);
+    console.log(`Restored ${state.vehicles.size} vehicles, ${state.geofences.length} geofences, ${state.alerts.length} recent alerts from Postgres.`);
+  });
+}
+
+boot().catch((err) => {
+  console.error('Failed to boot server:', err);
+  process.exit(1);
 });
