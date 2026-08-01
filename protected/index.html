@@ -8,7 +8,10 @@
 <link rel="preconnect" href="https://fonts.googleapis.com" />
 <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
 <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&family=IBM+Plex+Mono:wght@400;500;600&display=swap" rel="stylesheet" />
-<link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/leaflet/1.9.4/leaflet.min.css" />
+<!-- Self-hosted, not CDN — see the Chart.js comment further down for why:
+     minimizing third-party script/style origins is also a CSP hardening
+     measure (fewer origins to trust in script-src/style-src). -->
+<link rel="stylesheet" href="vendor/leaflet/leaflet.css" />
 <link rel="stylesheet" href="style.css" />
 </head>
 <body>
@@ -20,7 +23,7 @@
     <span class="brand-div"></span>
     <span class="brand-product">Fleet Shield</span>
   </div>
-  <div style="display:flex; align-items:center; gap: 18px;">
+  <div class="topbar-right">
     <div class="conn" id="connStatus">
       <span class="dot" id="connDot"></span>
       <span id="connText">Connecting…</span>
@@ -139,20 +142,15 @@
   </section>
 </main>
 
-<script src="https://cdnjs.cloudflare.com/ajax/libs/leaflet/1.9.4/leaflet.min.js"></script>
+<script src="vendor/leaflet/leaflet.js"></script>
 <!-- Self-hosted, not CDN: the cdnjs path for Chart.js 4.4.4's minified UMD
      build (chart.umd.min.js) doesn't actually exist — the npm package only
      ships an unminified chart.umd.js, so that CDN reference 404'd silently
      and left `Chart` undefined, breaking the Reports tab's charts. Vendoring
      the real file removes the dependency on a third-party CDN for this
-     asset entirely. -->
+     asset entirely, and also lets the CSP's script-src be 'self' only —
+     no third-party script origins to trust. -->
 <script src="vendor/chart.umd.js"></script>
-<script>
-  document.getElementById('logoutBtn').addEventListener('click', async () => {
-    await fetch('/api/logout', { method: 'POST' });
-    window.location.href = '/login.html';
-  });
-</script>
 <script src="app.js"></script>
 </body>
 </html>

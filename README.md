@@ -63,7 +63,8 @@ the broader council/utility/government use case):
   theme, IBM Plex Mono, matching the main jegasec.com site.
 - **Auth** (`auth.js`, `public/login.html`): a single admin account (env-configured,
   bcrypt-hashed password) gates the dashboard, the REST API, and the live WebSocket
-  feed via a signed session cookie. See `README`'s "Running it locally" for setup.
+  feed via a signed session cookie, with an optional TOTP second factor. See `README`'s
+  "Running it locally" for setup, and "Security" below for the full posture.
 
 This mirrors how a production system would be laid out — a device/telemetry ingestion
 service, a durable data layer, an API + real-time layer, and a dashboard — just with the
@@ -115,6 +116,66 @@ safe to run against real accumulated data — it never overwrites anything. **Re
 server afterwards** so it picks up the new totals (it only re-reads cumulative state
 from the database on boot).
 
+## Security
+
+Fleet Shield is aimed at councils, utilities, and government fleets, so the security
+posture is deliberately more than "add a login page." What's actually implemented:
+
+- **Authentication**: bcrypt-hashed password, brute-force rate limiting (10 attempts /
+  15 min, shared across the password and MFA steps), signed session cookies
+  (`httpOnly`, `SameSite=Lax`, `secure` in production).
+- **Optional TOTP multi-factor auth**: run `npm run setup-mfa` to generate a secret and
+  scannable QR code, then set `ADMIN_TOTP_SECRET` to turn on a mandatory second login
+  step. Off by default so existing password-only deployments don't break; turning it on
+  is a one-time, one-variable change. See "Enabling MFA" below.
+- **CSRF protection**: a double-submit cookie (`fs.csrf`) issued on successful login;
+  every state-changing API request must echo it back as an `X-CSRF-Token` header or it's
+  rejected (403). Read requests are unaffected.
+- **Security headers** (via `helmet`): a locked-down Content-Security-Policy
+  (`script-src 'self'` — no third-party script origins at all, since both Leaflet and
+  Chart.js are vendored locally rather than loaded from a CDN), plus HSTS,
+  X-Content-Type-Options, and `frame-ancestors 'none'` to block clickjacking.
+- **Audit log**: every login, failed login, MFA failure, and logout, plus every
+  geofence create/delete, is written to an `audit_log` table (who, when, from what IP,
+  success/failure) — durably, before the response is sent, not fire-and-forget.
+  Queryable via `GET /api/audit?limit=`.
+- **Input validation**: geofence coordinates/radius/type are bounds-checked server-side
+  (not just trusted from the form), independent of whatever the frontend enforces.
+- **Rate limiting**: a general 120 req/min per-IP ceiling on the whole API, on top of
+  the stricter login/MFA-specific limiter.
+- **Password policy**: `npm run hash-password` refuses passwords under 12 characters.
+- **Dependencies**: `npm audit` is clean (0 vulnerabilities) as of the last review.
+
+### Enabling MFA
+
+```
+npm run setup-mfa
+```
+
+This prints a secret and a QR code — scan it into Google Authenticator, Authy, 1Password,
+etc. Then set `ADMIN_TOTP_SECRET` to the printed secret (locally: add it to `.env`; on
+Render: Environment tab → add the variable → Save, which restarts the service). From the
+next login onward, the password step is followed by a 6-digit code prompt. Losing access
+to the authenticator app means removing `ADMIN_TOTP_SECRET` to fall back to
+password-only, then re-running the setup script to re-enrol.
+
+### Known accepted risk
+
+`npm audit` is currently clean, but worth noting for the record: this app deliberately
+pins `cookie@^0.7.x` rather than the newest `cookie@2.x` — the 2.x line renamed the
+`parse`/`serialize` exports (breaking API change) and an earlier upgrade attempt to it
+crashed the WebSocket auth handler in production. 0.7.x already includes the fix for the
+one CVE that applied to the 0.6.x line (CVE-2024-47764), and in any case that CVE
+requires an attacker-controlled cookie *name*, which this app never does — cookie names
+are hardcoded constants (`fs.sid`, `fs.csrf`), never derived from user input.
+
+### Not yet done
+
+Single shared admin account (no per-user accounts or roles), no formal penetration test,
+no IRAP/government security certification. See "Extending toward production" below for
+what would need to change to sell to more than one customer at once (multi-tenancy is
+the bigger gap there, not security per se).
+
 ## Deploying it for real
 
 See **[DEPLOY.md](./DEPLOY.md)** for the full walkthrough: a managed TimescaleDB
@@ -134,7 +195,11 @@ instance (Timescale Cloud) plus a persistent, WebSocket-capable host (Render).
 | GET | `/api/reports/summary` | Fleet KPIs, alert counts, per-vehicle stats (incl. emissions & utilisation) |
 | GET | `/api/reports/emissions` | Fleet + per-vehicle CO2-e, fuel/energy use, breakdown by fuel type |
 | GET | `/api/compliance` | Per-vehicle safety score, rego expiry status, service-due status |
+| GET | `/api/audit?limit=` | Security audit trail: login/MFA/logout events, geofence changes |
 | GET | `/api/health` | Server + database connectivity check |
+
+State-changing requests (`POST`/`DELETE`) require an `X-CSRF-Token` header matching the
+`fs.csrf` cookie issued at login — see "Security" below.
 
 WebSocket stream at `ws://localhost:3000/ws` emits `init`, `positions`, and `alert`
 messages.

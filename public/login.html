@@ -20,51 +20,31 @@
       <div class="login-eyebrow">— Admin Access</div>
 
       <form id="loginForm">
-        <label>Username
-          <input type="text" id="username" name="username" autocomplete="username" required autofocus />
-        </label>
-        <label>Password
-          <input type="password" id="password" name="password" autocomplete="current-password" required />
-        </label>
-        <button type="submit" id="loginBtn">Sign in</button>
-        <div class="login-error" id="loginError"></div>
+        <div id="passwordStep">
+          <label>Username
+            <input type="text" id="username" name="username" autocomplete="username" required autofocus />
+          </label>
+          <label>Password
+            <input type="password" id="password" name="password" autocomplete="current-password" required />
+          </label>
+          <button type="submit" id="loginBtn">Sign in</button>
+          <div class="login-error" id="loginError"></div>
+        </div>
+      </form>
+
+      <form id="mfaForm" class="hidden">
+        <div id="mfaStep">
+          <label>Authenticator code
+            <input type="text" id="mfaCode" name="mfaCode" inputmode="numeric" pattern="[0-9]*" autocomplete="one-time-code" maxlength="6" required placeholder="123456" />
+          </label>
+          <button type="submit" id="mfaBtn">Verify</button>
+          <div class="login-error" id="mfaError"></div>
+        </div>
       </form>
     </div>
     <div class="login-footnote">JEGASEC Defence Technologies Pty Ltd</div>
   </div>
 
-  <script>
-    const form = document.getElementById('loginForm');
-    const errorEl = document.getElementById('loginError');
-    const btn = document.getElementById('loginBtn');
-
-    form.addEventListener('submit', async (e) => {
-      e.preventDefault();
-      errorEl.textContent = '';
-      btn.disabled = true;
-      btn.textContent = 'Signing in…';
-      try {
-        const res = await fetch('/api/login', {
-          method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({
-            username: document.getElementById('username').value,
-            password: document.getElementById('password').value,
-          }),
-        });
-        if (res.ok) {
-          window.location.href = '/';
-          return;
-        }
-        const data = await res.json().catch(() => ({}));
-        errorEl.textContent = data.error || 'Sign-in failed. Check your credentials and try again.';
-      } catch (err) {
-        errorEl.textContent = 'Network error — could not reach the server.';
-      } finally {
-        btn.disabled = false;
-        btn.textContent = 'Sign in';
-      }
-    });
-  </script>
+  <script src="login.js"></script>
 </body>
 </html>

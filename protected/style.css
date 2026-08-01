@@ -40,6 +40,7 @@ body {
 }
 
 .brand { display: flex; align-items: center; gap: 14px; }
+.topbar-right { display: flex; align-items: center; gap: 18px; }
 .brand-logo {
   font-family: 'IBM Plex Mono', monospace;
   font-weight: 600;

@@ -35,6 +35,10 @@ Two accounts, both free to start. ~15 minutes.
      then paste the output (a `$2b$...` bcrypt hash, not the plain password) here.
    - `SESSION_SECRET` is handled for you — `render.yaml` sets `generateValue: true`, so
      Render generates and stores a random one automatically.
+   - `ADMIN_TOTP_SECRET` — optional, turns on mandatory MFA for login. Skip it for now if
+     you want the service up quickly; run `npm run setup-mfa` later and add this var
+     (Environment tab → Save, which restarts the service) whenever you're ready. See the
+     README's "Security" section.
 5. Click **Apply** / **Deploy**. Render will:
    - run `npm install && npm run migrate` (build — installs deps, then creates the tables
      + hypertable in Timescale; folded into the build step since `preDeployCommand` is a

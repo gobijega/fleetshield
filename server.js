@@ -24,9 +24,11 @@ require('dotenv').config();
 const express = require('express');
 const http = require('http');
 const path = require('path');
+const helmet = require('helmet');
+const rateLimit = require('express-rate-limit');
 const { WebSocketServer } = require('ws');
 const db = require('./db');
-const { sessionMiddleware, attachAuthRoutes, requireAuth, verifyWsClient } = require('./auth');
+const { sessionMiddleware, attachAuthRoutes, requireAuth, verifyWsClient, requireCsrf, audit } = require('./auth');
 const {
   ROUTES,
   EMISSION_FACTORS_KG,
@@ -443,6 +445,47 @@ function serializeVehicles() {
 
 const app = express();
 app.set('trust proxy', 1); // required for secure session cookies behind Render/Cloudflare
+
+// Security headers. CSP is locked to 'self' for scripts/styles/connect since
+// Leaflet and Chart.js are both vendored locally (see protected/vendor/) —
+// no third-party script origins to trust. Map tile imagery and Google Fonts
+// are the only external origins left, and neither is executable content.
+app.use(
+  helmet({
+    contentSecurityPolicy: {
+      directives: {
+        defaultSrc: ["'self'"],
+        scriptSrc: ["'self'"],
+        styleSrc: ["'self'", 'https://fonts.googleapis.com'],
+        fontSrc: ["'self'", 'https://fonts.gstatic.com'],
+        imgSrc: ["'self'", 'data:', 'https://*.basemaps.cartocdn.com'],
+        connectSrc: ["'self'"],
+        objectSrc: ["'none'"],
+        baseUri: ["'self'"],
+        formAction: ["'self'"],
+        frameAncestors: ["'none'"],
+      },
+    },
+    // Third-party map tiles (basemaps.cartocdn.com) don't send a
+    // Cross-Origin-Resource-Policy header, so helmet's default
+    // require-corp COEP would silently block every tile image and blank
+    // out the live map. Nothing in this app needs cross-origin isolation
+    // (no SharedArrayBuffer etc.), so this is a safe trade to make.
+    crossOriginEmbedderPolicy: false,
+  })
+);
+
+// General request-rate ceiling on the API, independent of the stricter
+// per-attempt login/MFA limiter in auth.js — blunts generic scripted abuse
+// against any endpoint, not just login.
+const apiLimiter = rateLimit({
+  windowMs: 60 * 1000,
+  max: 120,
+  standardHeaders: true,
+  legacyHeaders: false,
+});
+app.use('/api/', apiLimiter);
+
 app.use(express.json());
 app.use(sessionMiddleware);
 
@@ -461,6 +504,9 @@ app.get('/api/health', async (req, res) => {
 });
 
 app.use(requireAuth);
+// CSRF check for every authenticated mutating request from here down
+// (GET/HEAD/OPTIONS pass through untouched — see requireCsrf in auth.js).
+app.use('/api/', requireCsrf);
 app.use(express.static(path.join(__dirname, 'protected')));
 
 app.get('/api/vehicles', (req, res) => {
@@ -553,18 +599,44 @@ app.get('/api/geofences', (req, res) => {
   res.json(state.geofences);
 });
 
-app.post('/api/geofences', async (req, res) => {
-  const { name, lat, lng, radiusM, type } = req.body || {};
-  if (!name || typeof lat !== 'number' || typeof lng !== 'number' || !radiusM) {
-    return res.status(400).json({ error: 'name, lat, lng, radiusM are required' });
+const GEOFENCE_TYPES = new Set(['depot', 'restricted', 'custom']);
+const GEOFENCE_MAX_RADIUS_M = 50000; // 50km — generous for a depot/site zone, bounds against fat-finger or malicious huge values
+const GEOFENCE_NAME_MAX_LEN = 100;
+
+function validateGeofenceInput(body) {
+  const { name, lat, lng, radiusM, type } = body || {};
+  if (typeof name !== 'string' || !name.trim() || name.length > GEOFENCE_NAME_MAX_LEN) {
+    return `name is required (string, 1-${GEOFENCE_NAME_MAX_LEN} chars)`;
   }
-  const gf = { id: uid('gf'), name, lat, lng, radiusM, type: type || 'custom' };
+  if (typeof lat !== 'number' || !Number.isFinite(lat) || lat < -90 || lat > 90) {
+    return 'lat must be a number between -90 and 90';
+  }
+  if (typeof lng !== 'number' || !Number.isFinite(lng) || lng < -180 || lng > 180) {
+    return 'lng must be a number between -180 and 180';
+  }
+  if (typeof radiusM !== 'number' || !Number.isFinite(radiusM) || radiusM <= 0 || radiusM > GEOFENCE_MAX_RADIUS_M) {
+    return `radiusM must be a positive number up to ${GEOFENCE_MAX_RADIUS_M}`;
+  }
+  if (type !== undefined && !GEOFENCE_TYPES.has(type)) {
+    return `type must be one of: ${Array.from(GEOFENCE_TYPES).join(', ')}`;
+  }
+  return null;
+}
+
+app.post('/api/geofences', async (req, res) => {
+  const validationError = validateGeofenceInput(req.body);
+  if (validationError) {
+    return res.status(400).json({ error: validationError });
+  }
+  const { name, lat, lng, radiusM, type } = req.body;
+  const gf = { id: uid('gf'), name: name.trim(), lat, lng, radiusM, type: type || 'custom' };
   try {
     await db.query(
       `INSERT INTO geofences (id, name, lat, lng, radius_m, type) VALUES ($1,$2,$3,$4,$5,$6)`,
       [gf.id, gf.name, gf.lat, gf.lng, gf.radiusM, gf.type]
     );
     state.geofences.push(gf);
+    audit('geofence_created', { username: req.session.username, ip: req.ip, detail: `${gf.id}: ${gf.name}` });
     res.status(201).json(gf);
   } catch (err) {
     console.error(err);
@@ -577,10 +649,30 @@ app.delete('/api/geofences/:id', async (req, res) => {
     const result = await db.query('DELETE FROM geofences WHERE id = $1', [req.params.id]);
     state.geofences = state.geofences.filter((g) => g.id !== req.params.id);
     for (const v of state.vehicles.values()) v.lastGeofence.delete(req.params.id);
+    if (result.rowCount > 0) {
+      audit('geofence_deleted', { username: req.session.username, ip: req.ip, detail: req.params.id });
+    }
     res.json({ removed: result.rowCount > 0 });
   } catch (err) {
     console.error(err);
     res.status(500).json({ error: 'delete failed' });
+  }
+});
+
+// Security/compliance audit trail — login/MFA/logout events and geofence
+// changes. Read-only; useful for a council/utility/gov customer's own
+// security review of who did what and when.
+app.get('/api/audit', async (req, res) => {
+  const limit = Math.min(parseInt(req.query.limit, 10) || 100, 1000);
+  try {
+    const { rows } = await db.query(
+      `SELECT id, ts, event_type, username, ip, success, detail FROM audit_log ORDER BY ts DESC LIMIT $1`,
+      [limit]
+    );
+    res.json(rows);
+  } catch (err) {
+    console.error(err);
+    res.status(500).json({ error: 'query failed' });
   }
 });
 

@@ -10,6 +10,7 @@
 }
 
 * { box-sizing: border-box; }
+.hidden { display: none; }
 
 body {
   margin: 0;

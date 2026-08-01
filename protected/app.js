@@ -2,10 +2,32 @@
 // Connects to the backend over WebSocket for live positions/alerts,
 // and REST for geofences + reports.
 
+// CSRF: the server issues a non-httpOnly `fs.csrf` cookie alongside the
+// session cookie on successful login. State-changing requests (anything
+// but GET/HEAD/OPTIONS) must echo its value back as an X-CSRF-Token header
+// — the server rejects the request if the header doesn't match the cookie.
+// A page a victim didn't intend to visit can't read this cookie (it's
+// scoped to this origin) and so can't forge the header, which is what
+// actually blocks cross-site request forgery here (the SameSite=Lax
+// session cookie alone already blocks most of this, but this is
+// defense-in-depth expected by most security reviews).
+function getCsrfToken() {
+  const match = document.cookie.match(/(?:^|;\s*)fs\.csrf=([^;]+)/);
+  return match ? decodeURIComponent(match[1]) : null;
+}
+
 // Session-aware fetch wrapper — if the session has expired server-side,
 // every API call starts 401ing; bounce back to the login page instead of
-// silently failing.
-async function authedFetch(url, options) {
+// silently failing. Also attaches the CSRF header on mutating requests.
+async function authedFetch(url, options = {}) {
+  const method = (options.method || 'GET').toUpperCase();
+  if (!['GET', 'HEAD', 'OPTIONS'].includes(method)) {
+    const token = getCsrfToken();
+    options = {
+      ...options,
+      headers: { ...(options.headers || {}), ...(token ? { 'X-CSRF-Token': token } : {}) },
+    };
+  }
   const res = await fetch(url, options);
   if (res.status === 401) {
     window.location.href = '/login.html';
@@ -13,6 +35,11 @@ async function authedFetch(url, options) {
   }
   return res;
 }
+
+document.getElementById('logoutBtn').addEventListener('click', async () => {
+  await authedFetch('/api/logout', { method: 'POST' });
+  window.location.href = '/login.html';
+});
 
 const state = {
   vehicles: new Map(),
