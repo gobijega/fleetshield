@@ -46,10 +46,10 @@ body {
 }
 
 .login-logo {
-  font-family: 'IBM Plex Mono', monospace;
-  font-weight: 600;
-  font-size: 24px;
-  letter-spacing: 0.06em;
+  font-family: 'Share Tech Mono', 'IBM Plex Mono', monospace;
+  font-weight: 400;
+  font-size: 25px;
+  letter-spacing: 0.05em;
 }
 .login-logo .cursor {
   color: var(--accent);
