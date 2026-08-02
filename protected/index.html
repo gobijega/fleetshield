@@ -36,6 +36,7 @@
   <button class="tab-btn active" data-tab="map">Live Map</button>
   <button class="tab-btn" data-tab="alerts">Alerts <span class="badge" id="alertCount">0</span></button>
   <button class="tab-btn" data-tab="reports">Reports</button>
+  <button class="tab-btn" data-tab="fleet">Fleet &amp; Billing</button>
   <button class="tab-btn" data-tab="geofences">Geofencing</button>
   <button class="tab-btn" data-tab="compliance">Compliance</button>
 </nav>
@@ -103,6 +104,28 @@
         </thead>
         <tbody id="vehicleSummaryRows"></tbody>
       </table>
+    </div>
+  </section>
+
+  <section id="tab-fleet" class="tab-panel">
+    <h2>Fleet &amp; Billing</h2>
+    <div class="cards" id="billingCards"></div>
+    <div class="geofence-layout">
+      <div class="geofence-list" id="fleetVehicleList"></div>
+      <form class="geofence-form" id="addVehicleForm">
+        <h3>Add Vehicle</h3>
+        <label>Label<input type="text" id="vLabel" required maxlength="100" placeholder="e.g. Waste Collection 11" /></label>
+        <label>Driver<input type="text" id="vDriver" maxlength="100" placeholder="Optional" /></label>
+        <label>Fuel type
+          <select id="vFuelType">
+            <option value="diesel">Diesel</option>
+            <option value="petrol">Petrol</option>
+            <option value="ev">EV</option>
+          </select>
+        </label>
+        <button type="submit">Add Vehicle — +$17.50/mo</button>
+        <p class="hint" id="addVehicleError" style="color:var(--red);"></p>
+      </form>
     </div>
   </section>
 

@@ -171,10 +171,32 @@ are hardcoded constants (`fs.sid`, `fs.csrf`), never derived from user input.
 
 ### Not yet done
 
-Single shared admin account (no per-user accounts or roles), no formal penetration test,
-no IRAP/government security certification. See "Extending toward production" below for
-what would need to change to sell to more than one customer at once (multi-tenancy is
-the bigger gap there, not security per se).
+One admin account per organization (no per-org multi-user roles yet — a council with
+several staff who need dashboard access still shares one login), no formal penetration
+test, no IRAP/government security certification.
+
+## Billing
+
+Self-service signup at `/signup.html` — an organization creates an account, then Stripe's
+hosted Checkout collects payment (Fleet Shield never sees or stores card details). The
+subscription is AUD $17.50 per vehicle per month, billed via a quantity-based Stripe
+Price: the billed quantity is kept in sync automatically every time a vehicle is added
+or removed via the "Fleet & Billing" tab, so the bill always matches the live fleet size
+(Stripe prorates the difference automatically — see `lib/billing.js`).
+
+Requires four environment variables (`STRIPE_SECRET_KEY`, `STRIPE_WEBHOOK_SECRET`,
+`STRIPE_PRICE_ID`, `APP_BASE_URL` — see `.env.example`). Leave them unset to disable
+signup/billing entirely; the existing single-admin ("default" org) deployment works
+identically either way. A webhook endpoint (`POST /api/webhooks/stripe`) listens for
+`checkout.session.completed`, `customer.subscription.updated`/`deleted`, and
+`invoice.paid`/`payment_failed` to activate, update, or suspend an org's access —
+`subscription_status` of `incomplete` or `canceled` blocks dashboard/API access;
+`past_due` is allowed through as a grace period while Stripe's automatic retries run.
+
+Multi-tenancy: every table (`vehicles`, `positions`, `alerts`, `geofences`, `audit_log`)
+is scoped by `org_id`, and the in-memory simulation state, the WebSocket feed, and every
+REST route are all scoped to the logged-in session's org — one customer can never see or
+modify another's fleet data.
 
 ## Deploying it for real
 
@@ -195,8 +217,13 @@ instance (Timescale Cloud) plus a persistent, WebSocket-capable host (Render).
 | GET | `/api/reports/summary` | Fleet KPIs, alert counts, per-vehicle stats (incl. emissions & utilisation) |
 | GET | `/api/reports/emissions` | Fleet + per-vehicle CO2-e, fuel/energy use, breakdown by fuel type |
 | GET | `/api/compliance` | Per-vehicle safety score, rego expiry status, service-due status |
-| GET | `/api/audit?limit=` | Security audit trail: login/MFA/logout events, geofence changes |
+| GET | `/api/audit?limit=` | Security audit trail: login/MFA/logout events, geofence/vehicle changes |
 | GET | `/api/health` | Server + database connectivity check |
+| GET | `/api/me` | Current org's name, subscription status, vehicle count |
+| POST | `/api/vehicles` | Add a vehicle: `{ label, driver?, fuelType }` — syncs Stripe subscription quantity |
+| DELETE | `/api/vehicles/:id` | Remove a vehicle — syncs Stripe subscription quantity down |
+| POST | `/api/signup` (public) | Create an organization + admin account: `{ orgName, contactName?, contactEmail, username, password }`, returns a Stripe Checkout URL |
+| POST | `/api/webhooks/stripe` (public) | Stripe webhook receiver — signature-verified, not for direct use |
 
 State-changing requests (`POST`/`DELETE`) require an `X-CSRF-Token` header matching the
 `fs.csrf` cookie issued at login — see "Security" below.
@@ -211,8 +238,9 @@ messages.
   hardware-agnostic by design, this should support multiple concurrent hardware
   vendors/protocols per fleet (a council rarely has one uniform hardware base across
   every depot), not just one.
-- Add authentication, multi-tenant fleet scoping, and role-based access — each council/
-  utility/government customer is its own tenant with its own fleet, users, and data.
+- Multi-tenant fleet scoping and self-service billing are now in place (see "Billing"
+  above) — the remaining gap is per-org role-based access (multiple staff per customer
+  with different permission levels), not tenant isolation itself.
 - Add polygon geofences (currently circular), historical route playback on the map, and
   maintenance/fuel-cost reporting to match the tender's full scope.
 - Add PostGIS if/when geospatial queries (route matching, polygon containment) outgrow

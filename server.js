@@ -1,23 +1,28 @@
 /**
- * Vehicle Telematics Solution — MVP backend
+ * Fleet Shield — multi-tenant backend
  *
  * Simulates a fleet of vehicles moving along real-world-style routes,
  * generates driver-behaviour events, evaluates geofences, and streams live
  * updates to connected dashboards over WebSocket while exposing a REST API
  * for alerts, geofences, and reports.
  *
- * Persistence: fleet configuration, geofences, alert history, and every
- * position tick are stored in Postgres/TimescaleDB. On boot, each vehicle's
- * cumulative counters (odometer, fuel/CO2 used, moving/idling time, trip
- * count) are restored from its latest stored row, so a restart doesn't lose
- * fleet history — only the DB is the source of truth for anything that
- * needs to survive a redeploy. The in-memory `state` object below is a hot
- * cache for the 2s simulation tick and live WebSocket push, kept in sync
- * with the database on every write.
+ * Multi-tenant: every organization that signs up (see /api/signup) gets its
+ * own isolated fleet, scoped by org_id everywhere — in Postgres via the
+ * org_id column added on every fleet table, and in memory via `orgStates`,
+ * a Map keyed by org id instead of one global `state` object. The original
+ * single-admin deployment is preserved as the 'default' org (bootstrapped
+ * from ADMIN_USERNAME/ADMIN_PASSWORD_HASH at boot) so nothing changes for
+ * the existing production login and its already-seeded demo fleet.
+ *
+ * Billing: subscriptions are $17.50 AUD/vehicle/month via Stripe Checkout
+ * (hosted — card details never touch this server). The subscription's
+ * quantity is kept in sync with the org's live vehicle count on every
+ * add/remove (see lib/billing.js). See README's "Billing" section for the
+ * full flow.
  *
  * No real hardware/device feed is required — this demonstrates the
- * software layer (ingestion, processing, alerting, reporting, live map)
- * that a real telematics deployment would sit on top of.
+ * software layer (ingestion, processing, alerting, reporting, live map,
+ * billing) that a real telematics deployment would sit on top of.
  */
 
 require('dotenv').config();
@@ -26,6 +31,7 @@ const http = require('http');
 const path = require('path');
 const helmet = require('helmet');
 const rateLimit = require('express-rate-limit');
+const bcrypt = require('bcryptjs');
 const { WebSocketServer } = require('ws');
 const db = require('./db');
 const { sessionMiddleware, attachAuthRoutes, requireAuth, verifyWsClient, requireCsrf, audit } = require('./auth');
@@ -40,45 +46,52 @@ const {
   nowIso,
 } = require('./lib/fleet-data');
 const { backfillVehicleHistory, backfillAlerts } = require('./lib/backfill');
+const orgs = require('./lib/organizations');
+const billing = require('./lib/billing');
 
 const PORT = process.env.PORT || 3000;
 const TICK_MS = 2000; // simulation heartbeat
+const ROUTE_KEYS = Object.keys(ROUTES);
 
-// ---------------------------------------------------------------------------
-// Utilities
-// ---------------------------------------------------------------------------
-// haversineKm / uid / nowIso / ROUTES / EMISSION_FACTORS_KG / SEED_VEHICLES /
-// SEED_GEOFENCES / SERVICE_INTERVAL_KM now live in ./lib/fleet-data so the
-// backfill script can reuse the exact same fleet/route data without booting
-// the full server.
+// Fuel-type defaults for vehicles added via the self-service "Add vehicle"
+// form (which only asks for label/driver/fuel type) — reasonable stand-ins
+// for the operating characteristics the simulation needs, in the same
+// ballpark as SEED_VEHICLES until real device data replaces simulation.
+const FUEL_DEFAULTS = {
+  diesel: { consumptionPer100: 14, idleRatePerHour: 1.3 },
+  petrol: { consumptionPer100: 10, idleRatePerHour: 0.9 },
+  ev: { consumptionPer100: 20, idleRatePerHour: 1.0 },
+};
 
 function lerp(a, b, t) {
   return { lat: a.lat + (b.lat - a.lat) * t, lng: a.lng + (b.lng - a.lng) * t };
 }
 
-// How often (in ticks) to persist a position row per vehicle. At TICK_MS=2000
-// and DB_WRITE_EVERY_N_TICKS=1, that's 10 vehicles x 1 row / 2s ≈ 5 rows/sec
-// (~430k rows/day) — comfortably within what TimescaleDB is built for, but
-// easy to throttle down for a small/free-tier database.
+// How often (in ticks) to persist a position row per vehicle.
 const DB_WRITE_EVERY_N_TICKS = parseInt(process.env.DB_WRITE_EVERY_N_TICKS || '1', 10);
 
 // ---------------------------------------------------------------------------
-// Simulation state (hot cache — mirrors Postgres, restored from it on boot)
+// Simulation state — one entry per organization (hot cache, mirrors
+// Postgres, restored from it on boot / lazily created for new signups).
 // ---------------------------------------------------------------------------
 
-const state = {
-  vehicles: new Map(), // id -> live state
-  alerts: [], // most recent first, capped — fast cache for WS init/broadcast
-  geofences: [],
-};
-
+const orgStates = new Map(); // orgId -> { vehicles: Map, alerts: [], geofences: [] }
 const ALERTS_MAX = 500;
 let tickCounter = 0;
 
+function getOrgState(orgId) {
+  let s = orgStates.get(orgId);
+  if (!s) {
+    s = { vehicles: new Map(), alerts: [], geofences: [] };
+    orgStates.set(orgId, s);
+  }
+  return s;
+}
+
 const ALERT_SEVERITY_WEIGHT = { high: 8, medium: 4, low: 1, info: 0 };
 
-function safetyScore(vehicleId) {
-  const weight = state.alerts
+function safetyScore(orgState, vehicleId) {
+  const weight = orgState.alerts
     .filter((a) => a.vehicleId === vehicleId)
     .reduce((s, a) => s + (ALERT_SEVERITY_WEIGHT[a.severity] || 0), 0);
   return Math.max(0, 100 - weight);
@@ -95,46 +108,43 @@ function complianceStatus(days) {
 }
 
 // ---------------------------------------------------------------------------
-// Database bootstrap: seed if empty, then load + restore cumulative state
+// Database bootstrap
 // ---------------------------------------------------------------------------
 
-async function ensureSeedData() {
-  const { rows: vRows } = await db.query('SELECT count(*)::int AS n FROM vehicles');
+async function ensureDefaultOrgSeed() {
+  const { rows: vRows } = await db.query(`SELECT count(*)::int AS n FROM vehicles WHERE org_id = 'default'`);
   if (vRows[0].n === 0) {
-    console.log('vehicles table empty — seeding from SEED_VEHICLES...');
+    console.log("vehicles table empty for 'default' org — seeding from SEED_VEHICLES...");
     for (const v of SEED_VEHICLES) {
       const regoExpiryDate = new Date(Date.now() + v.regoOffsetDays * 86400000)
         .toISOString()
         .slice(0, 10);
       await db.query(
         `INSERT INTO vehicles
-          (id, label, driver, route, speed_limit, base_speed, fuel_type, consumption_per_100, idle_rate_per_hour, starting_odometer_km, rego_expiry_date)
-         VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11)
+          (id, label, driver, route, speed_limit, base_speed, fuel_type, consumption_per_100, idle_rate_per_hour, starting_odometer_km, rego_expiry_date, org_id)
+         VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,'default')
          ON CONFLICT (id) DO NOTHING`,
         [v.id, v.label, v.driver, v.route, v.speedLimit, v.baseSpeed, v.fuelType, v.consumptionPer100, v.idleRatePerHour, v.startingOdometerKm, regoExpiryDate]
       );
     }
 
-    // Fresh install — the Reports tab reads live cumulative counters that
-    // would otherwise start at zero and take days of real ticking to look
-    // meaningful. Backfill ~14 days of realistic simulated operating
-    // history (position totals + a spread of alerts) so Reports has
-    // something to show from the very first load. Safe to call here only
-    // because this whole block is gated on "vehicles table was empty" —
-    // it won't re-run and pile up extra history on every restart.
+    // Fresh install — backfill ~14 days of realistic simulated operating
+    // history so Reports has something to show from the very first load.
+    // Gated on the 'default' org's vehicles table being empty, so it never
+    // re-runs and piles up extra history on a restart.
     console.log('Backfilling ~14 days of simulated fleet history for Reports...');
-    const backfillSummary = await backfillVehicleHistory(db, SEED_VEHICLES, { days: 14 });
-    const alertsInserted = await backfillAlerts(db, SEED_VEHICLES, { days: 14 });
+    const backfillSummary = await backfillVehicleHistory(db, SEED_VEHICLES, { days: 14 }, 'default');
+    const alertsInserted = await backfillAlerts(db, SEED_VEHICLES, { days: 14 }, 'default');
     const totalKm = backfillSummary.reduce((s, v) => s + v.addedKm, 0);
     console.log(`Backfill complete: ~${totalKm} km and ${alertsInserted} alerts across ${backfillSummary.length} vehicles.`);
   }
 
-  const { rows: gRows } = await db.query('SELECT count(*)::int AS n FROM geofences');
+  const { rows: gRows } = await db.query(`SELECT count(*)::int AS n FROM geofences WHERE org_id = 'default'`);
   if (gRows[0].n === 0) {
-    console.log('geofences table empty — seeding from SEED_GEOFENCES...');
+    console.log("geofences table empty for 'default' org — seeding from SEED_GEOFENCES...");
     for (const g of SEED_GEOFENCES) {
       await db.query(
-        `INSERT INTO geofences (id, name, lat, lng, radius_m, type) VALUES ($1,$2,$3,$4,$5,$6)
+        `INSERT INTO geofences (id, name, lat, lng, radius_m, type, org_id) VALUES ($1,$2,$3,$4,$5,$6,'default')
          ON CONFLICT (id) DO NOTHING`,
         [g.id, g.name, g.lat, g.lng, g.radiusM, g.type]
       );
@@ -142,8 +152,8 @@ async function ensureSeedData() {
   }
 }
 
-async function loadVehiclesFromDb() {
-  const { rows } = await db.query('SELECT * FROM vehicles ORDER BY id');
+async function loadVehiclesForOrg(orgId) {
+  const { rows } = await db.query('SELECT * FROM vehicles WHERE org_id = $1 ORDER BY id', [orgId]);
   return rows.map((r) => ({
     id: r.id,
     label: r.label,
@@ -159,8 +169,8 @@ async function loadVehiclesFromDb() {
   }));
 }
 
-async function loadGeofencesFromDb() {
-  const { rows } = await db.query('SELECT * FROM geofences ORDER BY created_at');
+async function loadGeofencesForOrg(orgId) {
+  const { rows } = await db.query('SELECT * FROM geofences WHERE org_id = $1 ORDER BY created_at', [orgId]);
   return rows.map((g) => ({
     id: g.id,
     name: g.name,
@@ -179,25 +189,23 @@ async function restoreLatestPosition(vehicleId) {
   return rows[0] || null;
 }
 
-async function initVehicles(vehicleConfigs) {
+async function initVehiclesForOrg(orgId, vehicleConfigs) {
+  const orgState = getOrgState(orgId);
   for (const v of vehicleConfigs) {
     const route = ROUTES[v.route];
     const last = await restoreLatestPosition(v.id);
-    state.vehicles.set(v.id, {
+    orgState.vehicles.set(v.id, {
       ...v,
       segIndex: 0,
-      segT: Math.random(), // stagger starting positions along the loop
+      segT: Math.random(),
       lat: route[0].lat,
       lng: route[0].lng,
       speedKmh: 0,
       headingDeg: 0,
-      status: 'moving', // moving | idling
+      status: 'moving',
       idleTicks: 0,
       lastGeofence: new Set(),
       updatedAt: nowIso(),
-      // Cumulative counters — restored from the last persisted row if one
-      // exists, so a restart continues the fleet's history instead of
-      // resetting it to zero.
       odometerKm: last ? Number(last.odometer_km) : 0,
       fuelUsedTotal: last ? Number(last.fuel_used_total) : 0,
       co2KgTotal: last ? Number(last.co2_kg_total) : 0,
@@ -212,32 +220,30 @@ async function initVehicles(vehicleConfigs) {
 // Alerts
 // ---------------------------------------------------------------------------
 
-function pushAlert(alert) {
+function pushAlert(orgId, orgState, alert) {
   const full = { id: uid('al'), t: nowIso(), ...alert };
-  state.alerts.unshift(full);
-  if (state.alerts.length > ALERTS_MAX) state.alerts.length = ALERTS_MAX;
-  broadcast({ type: 'alert', alert: full });
+  orgState.alerts.unshift(full);
+  if (orgState.alerts.length > ALERTS_MAX) orgState.alerts.length = ALERTS_MAX;
+  broadcast(orgId, { type: 'alert', alert: full });
 
-  // Durable write-through — fire and forget so the simulation loop never
-  // blocks on the database. Failures are logged, not thrown.
   db.query(
-    `INSERT INTO alerts (id, ts, vehicle_id, vehicle_label, type, severity, message, geofence_id, lat, lng)
-     VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10)`,
-    [full.id, full.t, full.vehicleId || null, full.vehicleLabel || null, full.type, full.severity, full.message || null, full.geofenceId || null, full.lat ?? null, full.lng ?? null]
+    `INSERT INTO alerts (id, ts, vehicle_id, vehicle_label, type, severity, message, geofence_id, lat, lng, org_id)
+     VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11)`,
+    [full.id, full.t, full.vehicleId || null, full.vehicleLabel || null, full.type, full.severity, full.message || null, full.geofenceId || null, full.lat ?? null, full.lng ?? null, orgId]
   ).catch((err) => console.error('Failed to persist alert', err.message));
 
   return full;
 }
 
-function checkGeofences(v) {
-  for (const gf of state.geofences) {
+function checkGeofences(orgId, orgState, v) {
+  for (const gf of orgState.geofences) {
     const distM = haversineKm(v, gf) * 1000;
     const inside = distM <= gf.radiusM;
     const wasInside = v.lastGeofence.has(gf.id);
 
     if (inside && !wasInside) {
       v.lastGeofence.add(gf.id);
-      pushAlert({
+      pushAlert(orgId, orgState, {
         type: gf.type === 'restricted' ? 'geofence_restricted_entry' : 'geofence_entry',
         severity: gf.type === 'restricted' ? 'high' : 'info',
         vehicleId: v.id,
@@ -249,7 +255,7 @@ function checkGeofences(v) {
       });
     } else if (!inside && wasInside) {
       v.lastGeofence.delete(gf.id);
-      pushAlert({
+      pushAlert(orgId, orgState, {
         type: 'geofence_exit',
         severity: 'info',
         vehicleId: v.id,
@@ -267,30 +273,27 @@ function checkGeofences(v) {
 // Simulation tick
 // ---------------------------------------------------------------------------
 
-function persistPositions(rows) {
+function persistPositions(orgId, rows) {
   if (rows.length === 0) return;
-  const cols = ['ts', 'vehicle_id', 'lat', 'lng', 'speed_kmh', 'heading_deg', 'status', 'odometer_km', 'fuel_used_total', 'co2_kg_total', 'moving_sec_total', 'idling_sec_total', 'trip_count'];
+  const cols = ['ts', 'vehicle_id', 'lat', 'lng', 'speed_kmh', 'heading_deg', 'status', 'odometer_km', 'fuel_used_total', 'co2_kg_total', 'moving_sec_total', 'idling_sec_total', 'trip_count', 'org_id'];
   const values = [];
   const placeholders = rows.map((r, i) => {
     const base = i * cols.length;
-    values.push(r.ts, r.vehicleId, r.lat, r.lng, r.speedKmh, r.headingDeg, r.status, r.odometerKm, r.fuelUsedTotal, r.co2KgTotal, r.movingSec, r.idlingSec, r.tripCount);
+    values.push(r.ts, r.vehicleId, r.lat, r.lng, r.speedKmh, r.headingDeg, r.status, r.odometerKm, r.fuelUsedTotal, r.co2KgTotal, r.movingSec, r.idlingSec, r.tripCount, orgId);
     return `(${cols.map((_, j) => `$${base + j + 1}`).join(',')})`;
   });
   const sql = `INSERT INTO positions (${cols.join(',')}) VALUES ${placeholders.join(',')}`;
   db.query(sql, values).catch((err) => console.error('Failed to persist positions batch', err.message));
 }
 
-function tick() {
-  tickCounter += 1;
-  const shouldPersist = tickCounter % DB_WRITE_EVERY_N_TICKS === 0;
+function tickOrg(orgId, orgState, shouldPersist) {
   const positionRows = [];
 
-  for (const v of state.vehicles.values()) {
+  for (const v of orgState.vehicles.values()) {
     const route = ROUTES[v.route];
     const from = route[v.segIndex];
     const to = route[(v.segIndex + 1) % route.length];
 
-    // Depot pause / idling behaviour at the start of each loop
     if (v.segIndex === 0 && v.segT < 0.02) {
       if (v.idleTicks < 3) {
         v.idleTicks += 1;
@@ -303,7 +306,7 @@ function tick() {
         v.co2KgTotal += idleFuel * EMISSION_FACTORS_KG[v.fuelType];
         if (shouldPersist) positionRows.push(snapshotRow(v));
         if (v.idleTicks === 3) {
-          pushAlert({
+          pushAlert(orgId, orgState, {
             type: 'excessive_idling',
             severity: 'low',
             vehicleId: v.id,
@@ -319,16 +322,14 @@ function tick() {
     }
     v.status = 'moving';
 
-    // Speed variance incl. occasional harsh events
     const variance = (Math.random() - 0.5) * 12;
     let speed = Math.max(5, v.baseSpeed + variance);
 
     const roll = Math.random();
     if (roll < 0.025) {
-      // harsh braking
       const prevSpeed = speed;
       speed = Math.max(5, speed * 0.35);
-      pushAlert({
+      pushAlert(orgId, orgState, {
         type: 'harsh_braking',
         severity: 'medium',
         vehicleId: v.id,
@@ -338,9 +339,8 @@ function tick() {
         lng: v.lng,
       });
     } else if (roll > 0.975) {
-      // harsh acceleration / speeding
       speed = speed * 1.4;
-      pushAlert({
+      pushAlert(orgId, orgState, {
         type: 'harsh_acceleration',
         severity: 'medium',
         vehicleId: v.id,
@@ -352,7 +352,7 @@ function tick() {
     }
 
     if (speed > v.speedLimit * 1.15) {
-      pushAlert({
+      pushAlert(orgId, orgState, {
         type: 'speeding',
         severity: 'high',
         vehicleId: v.id,
@@ -363,7 +363,6 @@ function tick() {
       });
     }
 
-    // Advance position along the route segment based on speed
     const segLenKm = haversineKm(from, to) || 0.0001;
     const kmPerTick = speed * (TICK_MS / 1000 / 3600);
     v.segT += kmPerTick / segLenKm;
@@ -391,11 +390,19 @@ function tick() {
     v.co2KgTotal += fuelUsed * EMISSION_FACTORS_KG[v.fuelType];
 
     if (shouldPersist) positionRows.push(snapshotRow(v));
-    checkGeofences(v);
+    checkGeofences(orgId, orgState, v);
   }
 
-  if (shouldPersist) persistPositions(positionRows);
-  broadcast({ type: 'positions', vehicles: serializeVehicles() });
+  if (shouldPersist) persistPositions(orgId, positionRows);
+  broadcast(orgId, { type: 'positions', vehicles: serializeVehicles(orgState) });
+}
+
+function tick() {
+  tickCounter += 1;
+  const shouldPersist = tickCounter % DB_WRITE_EVERY_N_TICKS === 0;
+  for (const [orgId, orgState] of orgStates.entries()) {
+    tickOrg(orgId, orgState, shouldPersist);
+  }
 }
 
 function snapshotRow(v) {
@@ -416,8 +423,8 @@ function snapshotRow(v) {
   };
 }
 
-function serializeVehicles() {
-  return Array.from(state.vehicles.values()).map((v) => {
+function serializeVehicles(orgState) {
+  return Array.from(orgState.vehicles.values()).map((v) => {
     const totalSec = v.movingSec + v.idlingSec;
     return {
       id: v.id,
@@ -433,7 +440,7 @@ function serializeVehicles() {
       fuelType: v.fuelType,
       co2Kg: Math.round(v.co2KgTotal * 10) / 10,
       utilisationPct: totalSec ? Math.round((v.movingSec / totalSec) * 1000) / 10 : 0,
-      safetyScore: safetyScore(v.id),
+      safetyScore: safetyScore(orgState, v.id),
       updatedAt: v.updatedAt,
     };
   });
@@ -444,12 +451,8 @@ function serializeVehicles() {
 // ---------------------------------------------------------------------------
 
 const app = express();
-app.set('trust proxy', 1); // required for secure session cookies behind Render/Cloudflare
+app.set('trust proxy', 1);
 
-// Security headers. CSP is locked to 'self' for scripts/styles/connect since
-// Leaflet and Chart.js are both vendored locally (see protected/vendor/) —
-// no third-party script origins to trust. Map tile imagery and Google Fonts
-// are the only external origins left, and neither is executable content.
 app.use(
   helmet({
     contentSecurityPolicy: {
@@ -466,18 +469,10 @@ app.use(
         frameAncestors: ["'none'"],
       },
     },
-    // Third-party map tiles (basemaps.cartocdn.com) don't send a
-    // Cross-Origin-Resource-Policy header, so helmet's default
-    // require-corp COEP would silently block every tile image and blank
-    // out the live map. Nothing in this app needs cross-origin isolation
-    // (no SharedArrayBuffer etc.), so this is a safe trade to make.
     crossOriginEmbedderPolicy: false,
   })
 );
 
-// General request-rate ceiling on the API, independent of the stricter
-// per-attempt login/MFA limiter in auth.js — blunts generic scripted abuse
-// against any endpoint, not just login.
 const apiLimiter = rateLimit({
   windowMs: 60 * 1000,
   max: 120,
@@ -486,11 +481,88 @@ const apiLimiter = rateLimit({
 });
 app.use('/api/', apiLimiter);
 
+// Stripe's webhook signature check needs the *raw* request body, so this
+// route is mounted before express.json() with express.raw() scoped to just
+// this path — every other /api/ route still gets parsed JSON as normal.
+app.post('/api/webhooks/stripe', express.raw({ type: 'application/json' }), async (req, res) => {
+  if (!billing.billingEnabled) return res.status(503).json({ error: 'Billing not configured.' });
+  let event;
+  try {
+    event = billing.verifyWebhookSignature(req.body, req.get('Stripe-Signature'));
+  } catch (err) {
+    console.error('Stripe webhook signature verification failed:', err.message);
+    return res.status(400).json({ error: 'Invalid signature.' });
+  }
+
+  try {
+    switch (event.type) {
+      case 'checkout.session.completed': {
+        const session = event.data.object;
+        const orgId = session.client_reference_id;
+        if (orgId && session.subscription) {
+          const subscription = await billing.retrieveSubscription(session.subscription);
+          const subItemId = subscription.items.data[0]?.id;
+          await orgs.setStripeSubscription(db, orgId, {
+            subscriptionId: subscription.id,
+            subItemId,
+            status: subscription.status, // 'active' or 'trialing'
+          });
+          await audit('subscription_activated', { orgId, detail: subscription.id });
+        }
+        break;
+      }
+      case 'customer.subscription.updated': {
+        const subscription = event.data.object;
+        const org = await orgs.findOrgByStripeCustomer(db, subscription.customer);
+        if (org) {
+          await orgs.setStripeSubscription(db, org.id, {
+            subscriptionId: subscription.id,
+            subItemId: subscription.items.data[0]?.id,
+            status: subscription.status,
+          });
+          await audit('subscription_updated', { orgId: org.id, detail: subscription.status });
+        }
+        break;
+      }
+      case 'customer.subscription.deleted': {
+        const subscription = event.data.object;
+        await orgs.setSubscriptionStatusByCustomer(db, subscription.customer, 'canceled');
+        break;
+      }
+      case 'invoice.payment_failed': {
+        const invoice = event.data.object;
+        if (invoice.customer) {
+          await orgs.setSubscriptionStatusByCustomer(db, invoice.customer, 'past_due');
+        }
+        break;
+      }
+      case 'invoice.paid': {
+        const invoice = event.data.object;
+        if (invoice.customer) {
+          const org = await orgs.findOrgByStripeCustomer(db, invoice.customer);
+          // Only clear a past_due flag — don't stomp 'canceled'/'incomplete'
+          // if this event arrives out of order.
+          if (org && org.subscription_status === 'past_due') {
+            await orgs.setSubscriptionStatusByCustomer(db, invoice.customer, 'active');
+          }
+        }
+        break;
+      }
+      default:
+        break;
+    }
+    res.json({ received: true });
+  } catch (err) {
+    console.error('Error handling Stripe webhook event', event.type, err);
+    res.status(500).json({ error: 'Webhook handler error.' });
+  }
+});
+
 app.use(express.json());
 app.use(sessionMiddleware);
 
-// Login page + its assets (login.html, login.css, /brand/*) are intentionally
-// public — everything else in this file is gated by requireAuth below.
+// Login page, signup page, and their assets are intentionally public —
+// everything else in this file is gated by requireAuth below.
 app.use(express.static(path.join(__dirname, 'public')));
 attachAuthRoutes(app);
 
@@ -503,21 +575,207 @@ app.get('/api/health', async (req, res) => {
   }
 });
 
-app.use(requireAuth);
-// CSRF check for every authenticated mutating request from here down
-// (GET/HEAD/OPTIONS pass through untouched — see requireCsrf in auth.js).
-app.use('/api/', requireCsrf);
-app.use(express.static(path.join(__dirname, 'protected')));
+// --- signup (public) --------------------------------------------------------
 
-app.get('/api/vehicles', (req, res) => {
-  res.json(serializeVehicles());
+const PASSWORD_MIN_LENGTH = 12;
+const NAME_MAX_LEN = 150;
+
+function validateSignupInput(body) {
+  const { orgName, contactName, contactEmail, username, password } = body || {};
+  if (typeof orgName !== 'string' || !orgName.trim() || orgName.length > NAME_MAX_LEN) {
+    return 'Organisation name is required.';
+  }
+  if (typeof contactEmail !== 'string' || !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(contactEmail)) {
+    return 'A valid contact email is required.';
+  }
+  if (typeof username !== 'string' || !/^[a-zA-Z0-9_.-]{3,50}$/.test(username)) {
+    return 'Username must be 3-50 characters (letters, numbers, . _ - only).';
+  }
+  if (typeof password !== 'string' || password.length < PASSWORD_MIN_LENGTH) {
+    return `Password must be at least ${PASSWORD_MIN_LENGTH} characters.`;
+  }
+  if (contactName !== undefined && (typeof contactName !== 'string' || contactName.length > NAME_MAX_LEN)) {
+    return 'Contact name is too long.';
+  }
+  return null;
+}
+
+app.post('/api/signup', async (req, res) => {
+  const validationError = validateSignupInput(req.body);
+  if (validationError) return res.status(400).json({ error: validationError });
+
+  const { orgName, contactName, contactEmail, username, password } = req.body;
+
+  const existing = await orgs.findOrgByUsername(db, username);
+  if (existing) {
+    return res.status(409).json({ error: 'That username is already taken.' });
+  }
+
+  try {
+    const passwordHash = await bcrypt.hash(password, 12);
+    const org = await orgs.createOrganization(db, {
+      name: orgName.trim(),
+      contactName: contactName ? contactName.trim() : null,
+      contactEmail: contactEmail.trim(),
+      adminUsername: username,
+      adminPasswordHash: passwordHash,
+    });
+    await audit('org_created', { orgId: org.id, username, detail: orgName });
+
+    if (!billing.billingEnabled) {
+      // Billing not configured on this deployment — mark active so the
+      // account is at least usable, and log it clearly. Production should
+      // always have STRIPE_* env vars set before signup is exposed.
+      console.warn(`Billing not configured — organization ${org.id} created without a Stripe subscription.`);
+      await db.query(`UPDATE organizations SET subscription_status = 'active' WHERE id = $1`, [org.id]);
+      return res.status(201).json({ ok: true, checkoutUrl: null });
+    }
+
+    const customer = await billing.createCustomer({ orgId: org.id, name: orgName.trim(), email: contactEmail.trim() });
+    await orgs.setStripeCustomer(db, org.id, customer.id);
+    const session = await billing.createCheckoutSession({ orgId: org.id, stripeCustomerId: customer.id, initialQuantity: 1 });
+    res.status(201).json({ ok: true, checkoutUrl: session.url });
+  } catch (err) {
+    console.error('Signup failed:', err);
+    res.status(500).json({ error: 'Signup failed. Please try again.' });
+  }
 });
 
-// Historical position query — reads straight from Postgres/TimescaleDB, so
-// this reflects real history and survives restarts (unlike the old in-memory
-// breadcrumb trail). Defaults to the last 2 hours, capped at 1000 points.
+// --- everything below requires an authenticated, org-scoped session -------
+
+app.use(requireAuth);
+app.use('/api/', requireCsrf);
+
+// Subscription gate — blocks API/dashboard access for an org whose billing
+// isn't active. Mounted after requireAuth (so req.orgId is set) and before
+// the protected static files / API routes. 'past_due' is allowed through
+// with a client-visible flag rather than an outright block, giving a grace
+// period while Stripe's automatic retries run; 'incomplete' (checkout never
+// finished) and 'canceled' are blocked.
+async function requireActiveSubscription(req, res, next) {
+  const org = await orgs.findOrgById(db, req.orgId);
+  if (!org) return res.status(401).json({ error: 'Not authenticated.' });
+  if (org.subscription_status === 'incomplete' || org.subscription_status === 'canceled') {
+    if (req.path.startsWith('/api/')) {
+      return res.status(402).json({ error: 'Subscription is not active.', subscriptionStatus: org.subscription_status });
+    }
+    return res.redirect('/login.html?billing=required');
+  }
+  req.org = org;
+  next();
+}
+app.use(requireActiveSubscription);
+
+app.use(express.static(path.join(__dirname, 'protected')));
+
+app.get('/api/me', (req, res) => {
+  const orgState = getOrgState(req.orgId);
+  res.json({
+    orgId: req.org.id,
+    orgName: req.org.name,
+    subscriptionStatus: req.org.subscription_status,
+    vehicleCount: orgState.vehicles.size,
+    pricePerVehicleAud: 17.5,
+  });
+});
+
+app.get('/api/vehicles', (req, res) => {
+  res.json(serializeVehicles(getOrgState(req.orgId)));
+});
+
+const VEHICLE_LABEL_MAX_LEN = 100;
+const VEHICLE_FUEL_TYPES = new Set(['diesel', 'petrol', 'ev']);
+
+function validateVehicleInput(body) {
+  const { label, driver, fuelType } = body || {};
+  if (typeof label !== 'string' || !label.trim() || label.length > VEHICLE_LABEL_MAX_LEN) {
+    return `label is required (string, 1-${VEHICLE_LABEL_MAX_LEN} chars)`;
+  }
+  if (driver !== undefined && driver !== null && (typeof driver !== 'string' || driver.length > VEHICLE_LABEL_MAX_LEN)) {
+    return 'driver must be a string';
+  }
+  if (!VEHICLE_FUEL_TYPES.has(fuelType)) {
+    return `fuelType must be one of: ${Array.from(VEHICLE_FUEL_TYPES).join(', ')}`;
+  }
+  return null;
+}
+
+async function syncOrgSubscriptionQuantity(org, vehicleCount) {
+  if (!billing.billingEnabled || !org.stripe_sub_item_id) return;
+  try {
+    await billing.syncSubscriptionQuantity({
+      subscriptionId: org.stripe_subscription_id,
+      subItemId: org.stripe_sub_item_id,
+      quantity: vehicleCount,
+    });
+  } catch (err) {
+    // Never block the vehicle add/remove on a billing hiccup — log loudly
+    // so it can be reconciled, but the fleet operation itself still succeeds.
+    console.error(`Failed to sync subscription quantity for org ${org.id}:`, err.message);
+  }
+}
+
+app.post('/api/vehicles', async (req, res) => {
+  const validationError = validateVehicleInput(req.body);
+  if (validationError) return res.status(400).json({ error: validationError });
+
+  const orgState = getOrgState(req.orgId);
+  const { label, driver, fuelType } = req.body;
+  const defaults = FUEL_DEFAULTS[fuelType];
+  const route = ROUTE_KEYS[orgState.vehicles.size % ROUTE_KEYS.length];
+  const regoExpiryDate = new Date(Date.now() + 180 * 86400000).toISOString().slice(0, 10);
+
+  const v = {
+    id: uid('veh'),
+    label: label.trim(),
+    driver: driver ? driver.trim() : null,
+    route,
+    speedLimit: 60,
+    baseSpeed: 45,
+    fuelType,
+    consumptionPer100: defaults.consumptionPer100,
+    idleRatePerHour: defaults.idleRatePerHour,
+    startingOdometerKm: 0,
+    regoExpiryDate,
+  };
+
+  try {
+    await db.query(
+      `INSERT INTO vehicles
+        (id, label, driver, route, speed_limit, base_speed, fuel_type, consumption_per_100, idle_rate_per_hour, starting_odometer_km, rego_expiry_date, org_id)
+       VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12)`,
+      [v.id, v.label, v.driver, v.route, v.speedLimit, v.baseSpeed, v.fuelType, v.consumptionPer100, v.idleRatePerHour, v.startingOdometerKm, v.regoExpiryDate, req.orgId]
+    );
+    await initVehiclesForOrg(req.orgId, [v]);
+    await audit('vehicle_added', { orgId: req.orgId, username: req.session.username, ip: req.ip, detail: `${v.id}: ${v.label}` });
+    await syncOrgSubscriptionQuantity(req.org, orgState.vehicles.size);
+    res.status(201).json(serializeVehicles(orgState).find((sv) => sv.id === v.id));
+  } catch (err) {
+    console.error(err);
+    res.status(500).json({ error: 'insert failed' });
+  }
+});
+
+app.delete('/api/vehicles/:id', async (req, res) => {
+  const orgState = getOrgState(req.orgId);
+  if (!orgState.vehicles.has(req.params.id)) {
+    return res.status(404).json({ error: 'vehicle not found' });
+  }
+  try {
+    await db.query('DELETE FROM vehicles WHERE id = $1 AND org_id = $2', [req.params.id, req.orgId]);
+    orgState.vehicles.delete(req.params.id);
+    await audit('vehicle_removed', { orgId: req.orgId, username: req.session.username, ip: req.ip, detail: req.params.id });
+    await syncOrgSubscriptionQuantity(req.org, orgState.vehicles.size);
+    res.json({ removed: true });
+  } catch (err) {
+    console.error(err);
+    res.status(500).json({ error: 'delete failed' });
+  }
+});
+
 app.get('/api/vehicles/:id/trips', async (req, res) => {
-  if (!state.vehicles.has(req.params.id)) {
+  const orgState = getOrgState(req.orgId);
+  if (!orgState.vehicles.has(req.params.id)) {
     return res.status(404).json({ error: 'vehicle not found' });
   }
   const hours = Math.min(parseFloat(req.query.hours) || 2, 168);
@@ -525,9 +783,9 @@ app.get('/api/vehicles/:id/trips', async (req, res) => {
   try {
     const { rows } = await db.query(
       `SELECT ts, lat, lng, speed_kmh FROM positions
-       WHERE vehicle_id = $1 AND ts > now() - ($2 || ' hours')::interval
-       ORDER BY ts ASC LIMIT $3`,
-      [req.params.id, hours, limit]
+       WHERE vehicle_id = $1 AND org_id = $2 AND ts > now() - ($3 || ' hours')::interval
+       ORDER BY ts ASC LIMIT $4`,
+      [req.params.id, req.orgId, hours, limit]
     );
     res.json(rows.map((r) => ({ t: r.ts, lat: Number(r.lat), lng: Number(r.lng), speed: Number(r.speed_kmh) })));
   } catch (err) {
@@ -536,19 +794,17 @@ app.get('/api/vehicles/:id/trips', async (req, res) => {
   }
 });
 
-// Historical alert log from Postgres (not capped at the in-memory 500 like
-// before) — this is what actually survives a redeploy.
 app.get('/api/alerts', async (req, res) => {
   const limit = Math.min(parseInt(req.query.limit, 10) || 50, 1000);
   try {
-    const params = [limit];
-    let where = '';
+    const params = [req.orgId, limit];
+    let vehicleFilter = '';
     if (req.query.vehicleId) {
       params.push(req.query.vehicleId);
-      where = 'WHERE vehicle_id = $2';
+      vehicleFilter = 'AND vehicle_id = $3';
     }
     const { rows } = await db.query(
-      `SELECT * FROM alerts ${where} ORDER BY ts DESC LIMIT $1`,
+      `SELECT * FROM alerts WHERE org_id = $1 ${vehicleFilter} ORDER BY ts DESC LIMIT $2`,
       params
     );
     res.json(
@@ -571,9 +827,6 @@ app.get('/api/alerts', async (req, res) => {
   }
 });
 
-// Daily rollup per vehicle — demonstrates TimescaleDB-backed historical
-// reporting (distance, CO2, avg speed per day) that a live in-memory-only
-// server could never offer.
 app.get('/api/reports/daily/:vehicleId', async (req, res) => {
   try {
     const { rows } = await db.query(
@@ -582,11 +835,11 @@ app.get('/api/reports/daily/:vehicleId', async (req, res) => {
               round((max(co2_kg_total) - min(co2_kg_total))::numeric, 1) AS co2_kg,
               round(avg(speed_kmh)::numeric, 1) AS avg_speed_kmh
        FROM positions
-       WHERE vehicle_id = $1
+       WHERE vehicle_id = $1 AND org_id = $2
        GROUP BY day
        ORDER BY day DESC
        LIMIT 30`,
-      [req.params.vehicleId]
+      [req.params.vehicleId, req.orgId]
     );
     res.json(rows);
   } catch (err) {
@@ -596,11 +849,11 @@ app.get('/api/reports/daily/:vehicleId', async (req, res) => {
 });
 
 app.get('/api/geofences', (req, res) => {
-  res.json(state.geofences);
+  res.json(getOrgState(req.orgId).geofences);
 });
 
 const GEOFENCE_TYPES = new Set(['depot', 'restricted', 'custom']);
-const GEOFENCE_MAX_RADIUS_M = 50000; // 50km — generous for a depot/site zone, bounds against fat-finger or malicious huge values
+const GEOFENCE_MAX_RADIUS_M = 50000;
 const GEOFENCE_NAME_MAX_LEN = 100;
 
 function validateGeofenceInput(body) {
@@ -632,11 +885,11 @@ app.post('/api/geofences', async (req, res) => {
   const gf = { id: uid('gf'), name: name.trim(), lat, lng, radiusM, type: type || 'custom' };
   try {
     await db.query(
-      `INSERT INTO geofences (id, name, lat, lng, radius_m, type) VALUES ($1,$2,$3,$4,$5,$6)`,
-      [gf.id, gf.name, gf.lat, gf.lng, gf.radiusM, gf.type]
+      `INSERT INTO geofences (id, name, lat, lng, radius_m, type, org_id) VALUES ($1,$2,$3,$4,$5,$6,$7)`,
+      [gf.id, gf.name, gf.lat, gf.lng, gf.radiusM, gf.type, req.orgId]
     );
-    state.geofences.push(gf);
-    audit('geofence_created', { username: req.session.username, ip: req.ip, detail: `${gf.id}: ${gf.name}` });
+    getOrgState(req.orgId).geofences.push(gf);
+    audit('geofence_created', { orgId: req.orgId, username: req.session.username, ip: req.ip, detail: `${gf.id}: ${gf.name}` });
     res.status(201).json(gf);
   } catch (err) {
     console.error(err);
@@ -646,11 +899,12 @@ app.post('/api/geofences', async (req, res) => {
 
 app.delete('/api/geofences/:id', async (req, res) => {
   try {
-    const result = await db.query('DELETE FROM geofences WHERE id = $1', [req.params.id]);
-    state.geofences = state.geofences.filter((g) => g.id !== req.params.id);
-    for (const v of state.vehicles.values()) v.lastGeofence.delete(req.params.id);
+    const result = await db.query('DELETE FROM geofences WHERE id = $1 AND org_id = $2', [req.params.id, req.orgId]);
+    const orgState = getOrgState(req.orgId);
+    orgState.geofences = orgState.geofences.filter((g) => g.id !== req.params.id);
+    for (const v of orgState.vehicles.values()) v.lastGeofence.delete(req.params.id);
     if (result.rowCount > 0) {
-      audit('geofence_deleted', { username: req.session.username, ip: req.ip, detail: req.params.id });
+      audit('geofence_deleted', { orgId: req.orgId, username: req.session.username, ip: req.ip, detail: req.params.id });
     }
     res.json({ removed: result.rowCount > 0 });
   } catch (err) {
@@ -659,15 +913,12 @@ app.delete('/api/geofences/:id', async (req, res) => {
   }
 });
 
-// Security/compliance audit trail — login/MFA/logout events and geofence
-// changes. Read-only; useful for a council/utility/gov customer's own
-// security review of who did what and when.
 app.get('/api/audit', async (req, res) => {
   const limit = Math.min(parseInt(req.query.limit, 10) || 100, 1000);
   try {
     const { rows } = await db.query(
-      `SELECT id, ts, event_type, username, ip, success, detail FROM audit_log ORDER BY ts DESC LIMIT $1`,
-      [limit]
+      `SELECT id, ts, event_type, username, ip, success, detail FROM audit_log WHERE org_id = $1 ORDER BY ts DESC LIMIT $2`,
+      [req.orgId, limit]
     );
     res.json(rows);
   } catch (err) {
@@ -677,7 +928,8 @@ app.get('/api/audit', async (req, res) => {
 });
 
 app.get('/api/reports/summary', (req, res) => {
-  const vehicles = Array.from(state.vehicles.values());
+  const orgState = getOrgState(req.orgId);
+  const vehicles = Array.from(orgState.vehicles.values());
   const totalKm = vehicles.reduce((s, v) => s + v.odometerKm, 0);
   const avgSpeed =
     vehicles.reduce((s, v) => s + v.speedKmh, 0) / (vehicles.length || 1);
@@ -690,7 +942,7 @@ app.get('/api/reports/summary', (req, res) => {
     }, 0) / (vehicles.length || 1);
 
   const alertCounts = {};
-  for (const a of state.alerts) {
+  for (const a of orgState.alerts) {
     alertCounts[a.type] = (alertCounts[a.type] || 0) + 1;
   }
 
@@ -707,8 +959,8 @@ app.get('/api/reports/summary', (req, res) => {
       co2Kg: Math.round(v.co2KgTotal * 10) / 10,
       utilisationPct: total ? Math.round((v.movingSec / total) * 1000) / 10 : 0,
       tripCount: v.tripCount,
-      safetyScore: safetyScore(v.id),
-      alerts: state.alerts.filter((a) => a.vehicleId === v.id).length,
+      safetyScore: safetyScore(orgState, v.id),
+      alerts: orgState.alerts.filter((a) => a.vehicleId === v.id).length,
     };
   });
 
@@ -718,7 +970,7 @@ app.get('/api/reports/summary', (req, res) => {
     totalDistanceKm: Math.round(totalKm * 10) / 10,
     avgSpeedKmh: Math.round(avgSpeed * 10) / 10,
     vehiclesIdling: idling,
-    totalAlerts: state.alerts.length,
+    totalAlerts: orgState.alerts.length,
     totalCO2Kg: Math.round(totalCO2Kg * 10) / 10,
     avgUtilisationPct: Math.round(avgUtilisation * 10) / 10,
     alertCounts,
@@ -727,7 +979,8 @@ app.get('/api/reports/summary', (req, res) => {
 });
 
 app.get('/api/reports/emissions', (req, res) => {
-  const vehicles = Array.from(state.vehicles.values());
+  const orgState = getOrgState(req.orgId);
+  const vehicles = Array.from(orgState.vehicles.values());
   const totalCO2Kg = vehicles.reduce((s, v) => s + v.co2KgTotal, 0);
   const totalFuelL = vehicles
     .filter((v) => v.fuelType !== 'ev')
@@ -765,7 +1018,7 @@ app.get('/api/reports/emissions', (req, res) => {
 });
 
 app.get('/api/compliance', (req, res) => {
-  const vehicles = Array.from(state.vehicles.values());
+  const vehicles = Array.from(getOrgState(req.orgId).vehicles.values());
   res.json(
     vehicles.map((v) => {
       const kmTotal = v.startingOdometerKm + v.odometerKm;
@@ -776,7 +1029,7 @@ app.get('/api/compliance', (req, res) => {
         id: v.id,
         label: v.label,
         driver: v.driver,
-        safetyScore: safetyScore(v.id),
+        safetyScore: safetyScore(getOrgState(req.orgId), v.id),
         regoExpiryDate: v.regoExpiryDate,
         regoDaysRemaining: regoDays,
         regoStatus: complianceStatus(regoDays),
@@ -791,47 +1044,75 @@ app.get('/api/compliance', (req, res) => {
 const server = http.createServer(app);
 const wss = new WebSocketServer({ server, path: '/ws', verifyClient: verifyWsClient });
 
-function broadcast(payload) {
+// Only pushes to clients belonging to the given org — this is the whole
+// tenant-isolation guarantee for the live feed: a WS connection's orgId is
+// fixed at auth time (verifyWsClient) and never changes.
+function broadcast(orgId, payload) {
   const msg = JSON.stringify(payload);
   for (const client of wss.clients) {
-    if (client.readyState === client.OPEN) client.send(msg);
+    if (client.readyState === client.OPEN && client.orgId === orgId) client.send(msg);
   }
 }
 
-wss.on('connection', (ws) => {
-  ws.send(JSON.stringify({ type: 'init', vehicles: serializeVehicles(), geofences: state.geofences, alerts: state.alerts.slice(0, 50) }));
+wss.on('connection', (ws, req) => {
+  ws.orgId = req.orgId;
+  const orgState = getOrgState(ws.orgId);
+  ws.send(JSON.stringify({
+    type: 'init',
+    vehicles: serializeVehicles(orgState),
+    geofences: orgState.geofences,
+    alerts: orgState.alerts.slice(0, 50),
+  }));
 });
 
 async function boot() {
-  await ensureSeedData();
-  const vehicleConfigs = await loadVehiclesFromDb();
-  state.geofences = await loadGeofencesFromDb();
-  await initVehicles(vehicleConfigs);
+  // Bootstrap the legacy single-admin deployment as the 'default' org, from
+  // the same env vars the original single-tenant version used — required
+  // so the existing production login keeps working unchanged.
+  const ADMIN_USERNAME = process.env.ADMIN_USERNAME;
+  const ADMIN_PASSWORD_HASH = process.env.ADMIN_PASSWORD_HASH;
+  const ADMIN_TOTP_SECRET = process.env.ADMIN_TOTP_SECRET || null;
+  if (ADMIN_USERNAME && ADMIN_PASSWORD_HASH) {
+    await orgs.upsertDefaultOrg(db, { username: ADMIN_USERNAME, passwordHash: ADMIN_PASSWORD_HASH, totpSecret: ADMIN_TOTP_SECRET });
+  } else {
+    console.warn('ADMIN_USERNAME/ADMIN_PASSWORD_HASH not set — the default org will not have a login until they are set.');
+  }
 
-  // Warm the in-memory alert cache from the DB so safety scores and the
-  // WebSocket init payload aren't empty right after a restart.
-  const { rows: recentAlerts } = await db.query(
-    'SELECT * FROM alerts ORDER BY ts DESC LIMIT $1',
-    [ALERTS_MAX]
-  );
-  state.alerts = recentAlerts.map((r) => ({
-    id: r.id,
-    t: r.ts,
-    vehicleId: r.vehicle_id,
-    vehicleLabel: r.vehicle_label,
-    type: r.type,
-    severity: r.severity,
-    message: r.message,
-    geofenceId: r.geofence_id,
-    lat: r.lat != null ? Number(r.lat) : null,
-    lng: r.lng != null ? Number(r.lng) : null,
-  }));
+  await ensureDefaultOrgSeed();
+
+  const allOrgs = await orgs.listOrgs(db);
+  let totalVehicles = 0;
+  for (const org of allOrgs) {
+    const vehicleConfigs = await loadVehiclesForOrg(org.id);
+    const orgState = getOrgState(org.id);
+    orgState.geofences = await loadGeofencesForOrg(org.id);
+    await initVehiclesForOrg(org.id, vehicleConfigs);
+    totalVehicles += vehicleConfigs.length;
+
+    const { rows: recentAlerts } = await db.query(
+      'SELECT * FROM alerts WHERE org_id = $1 ORDER BY ts DESC LIMIT $2',
+      [org.id, ALERTS_MAX]
+    );
+    orgState.alerts = recentAlerts.map((r) => ({
+      id: r.id,
+      t: r.ts,
+      vehicleId: r.vehicle_id,
+      vehicleLabel: r.vehicle_label,
+      type: r.type,
+      severity: r.severity,
+      message: r.message,
+      geofenceId: r.geofence_id,
+      lat: r.lat != null ? Number(r.lat) : null,
+      lng: r.lng != null ? Number(r.lng) : null,
+    }));
+  }
 
   setInterval(tick, TICK_MS);
 
   server.listen(PORT, () => {
-    console.log(`Telematics MVP running at http://localhost:${PORT}`);
-    console.log(`Restored ${state.vehicles.size} vehicles, ${state.geofences.length} geofences, ${state.alerts.length} recent alerts from Postgres.`);
+    console.log(`Fleet Shield running at http://localhost:${PORT}`);
+    console.log(`Restored ${allOrgs.length} organization(s), ${totalVehicles} vehicle(s) total from Postgres.`);
+    console.log(`Billing: ${billing.billingEnabled ? 'enabled (Stripe)' : 'DISABLED (STRIPE_* env vars not set)'}`);
   });
 }
 

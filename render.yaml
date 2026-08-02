@@ -24,3 +24,11 @@ services:
         sync: false   # output of: npm run hash-password -- "your-password"
       - key: SESSION_SECRET
         generateValue: true   # Render generates and stores a random secret for you
+      - key: STRIPE_SECRET_KEY
+        sync: false   # from https://dashboard.stripe.com/apikeys — leave unset to disable signup/billing
+      - key: STRIPE_WEBHOOK_SECRET
+        sync: false   # from the webhook endpoint's settings page in the Stripe dashboard
+      - key: STRIPE_PRICE_ID
+        sync: false   # the recurring Price ID for the $17.50 AUD/vehicle/month plan
+      - key: APP_BASE_URL
+        value: https://fleetshield.systems

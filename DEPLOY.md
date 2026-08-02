@@ -39,6 +39,10 @@ Two accounts, both free to start. ~15 minutes.
      you want the service up quickly; run `npm run setup-mfa` later and add this var
      (Environment tab → Save, which restarts the service) whenever you're ready. See the
      README's "Security" section.
+   - `STRIPE_SECRET_KEY`, `STRIPE_WEBHOOK_SECRET`, `STRIPE_PRICE_ID`, `APP_BASE_URL` —
+     optional, enable self-service signup + subscription billing. Skip all four to launch
+     without public signup (the existing single-admin login still works fine). See
+     "Enabling billing" below whenever you're ready to turn it on.
 5. Click **Apply** / **Deploy**. Render will:
    - run `npm install && npm run migrate` (build — installs deps, then creates the tables
      + hypertable in Timescale; folded into the build step since `preDeployCommand` is a
@@ -65,6 +69,29 @@ If you bought a domain through Cloudflare and want it pointing at this app inste
    issues its own certificate for the custom domain automatically once DNS resolves.
 4. Give it a few minutes for DNS to propagate, then visit `https://fleet.jegasec.com` —
    you should land on the login page.
+
+## Enabling billing
+
+1. In the [Stripe dashboard](https://dashboard.stripe.com/apikeys), grab your secret key
+   (`sk_live_...` for real charges, or switch the dashboard to Test mode first and use a
+   `sk_test_...` key plus a test-mode Price ID while you verify the flow with a
+   [test card](https://docs.stripe.com/testing) before going live).
+2. Create a recurring Price for the subscription (Products → Add product): AUD $17.50,
+   billing period Monthly, pricing model "Standard pricing" (per-unit/"licensed" usage
+   type — quantity is set by the app, not self-reported by the customer). Copy its
+   `price_...` ID.
+3. Developers → Webhooks → Add endpoint: URL `https://<your-domain>/api/webhooks/stripe`,
+   events `checkout.session.completed`, `customer.subscription.updated`,
+   `customer.subscription.deleted`, `invoice.paid`, `invoice.payment_failed`. Copy the
+   signing secret (`whsec_...`).
+4. In Render's Environment tab, set `STRIPE_SECRET_KEY`, `STRIPE_WEBHOOK_SECRET`,
+   `STRIPE_PRICE_ID` (from steps 1-3) and `APP_BASE_URL` (your live domain, e.g.
+   `https://fleetshield.systems`) → Save, which restarts the service.
+5. Visit `/signup.html` and run through a full signup with a real (or, in test mode, a
+   test) card to confirm: the org is created, Checkout redirects back to
+   `/signup-success.html`, the webhook fires and flips `subscription_status` to `active`,
+   and logging in reaches the dashboard with an empty fleet ready for vehicles to be
+   added.
 
 ## Notes for a tender / client demo
 

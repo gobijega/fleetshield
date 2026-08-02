@@ -1,0 +1,76 @@
+/* Extends login.css's variables/base styles for the signup page — a wider
+   card with more fields, otherwise the same visual language. */
+
+.signup-card {
+  width: 420px;
+}
+
+.signup-price {
+  margin: -4px 0 24px;
+  font-family: 'IBM Plex Mono', monospace;
+  font-size: 12px;
+  color: var(--accent);
+  letter-spacing: 0.02em;
+}
+
+#signupForm { text-align: left; }
+
+#signupForm label {
+  display: block;
+  font-family: 'IBM Plex Mono', monospace;
+  font-size: 11px;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  color: var(--muted);
+  margin-bottom: 16px;
+}
+
+#signupForm input {
+  display: block;
+  width: 100%;
+  margin-top: 6px;
+  background: var(--bg);
+  border: 1px solid var(--border);
+  color: var(--text);
+  padding: 10px 12px;
+  font-size: 14px;
+  font-family: 'Inter', sans-serif;
+  border-radius: 2px;
+}
+#signupForm input:focus {
+  outline: none;
+  border-color: var(--accent);
+  box-shadow: 0 0 0 1px var(--accent);
+}
+
+.field-hint {
+  display: block;
+  margin-top: 4px;
+  font-size: 11px;
+  text-transform: none;
+  letter-spacing: normal;
+  color: var(--muted);
+}
+
+#signupForm button {
+  width: 100%;
+  margin-top: 6px;
+  background: var(--accent);
+  color: #04120f;
+  border: none;
+  font-family: 'IBM Plex Mono', monospace;
+  font-weight: 600;
+  text-transform: uppercase;
+  letter-spacing: 0.05em;
+  font-size: 13px;
+  padding: 12px;
+  cursor: pointer;
+  border-radius: 2px;
+  transition: background 0.15s, opacity 0.15s;
+}
+#signupForm button:hover { background: #3fe066; }
+#signupForm button:disabled { opacity: 0.6; cursor: default; }
+
+@media (max-width: 600px) {
+  #signupForm input { font-size: 16px; } /* avoid iOS auto-zoom on focus */
+}

@@ -13,13 +13,17 @@
  * or discard it. Running it more than once will keep adding another batch
  * of simulated days each time, so use --days to control how much to add.
  *
+ * Multi-tenant note: this tops up the 'default' org only (the original
+ * single-admin deployment / its demo fleet) — a signed-up customer's own
+ * org gets its own vehicles via the in-app "Add vehicle" form, not this
+ * script.
+ *
  * Usage:
  *   npm run backfill                 # adds ~14 simulated days (default)
  *   npm run backfill -- --days=21    # adds ~21 simulated days
  */
 require('dotenv').config();
 const { pool, query } = require('../db');
-const { loadVehiclesFromDb } = require('../lib/fleet-data');
 const { backfillVehicleHistory, backfillAlerts } = require('../lib/backfill');
 
 function parseDays() {
@@ -28,19 +32,36 @@ function parseDays() {
   return Number.isFinite(days) && days > 0 ? days : 14;
 }
 
+async function loadDefaultOrgVehicles(db) {
+  const { rows } = await db.query(`SELECT * FROM vehicles WHERE org_id = 'default' ORDER BY id`);
+  return rows.map((r) => ({
+    id: r.id,
+    label: r.label,
+    driver: r.driver,
+    route: r.route,
+    speedLimit: r.speed_limit,
+    baseSpeed: r.base_speed,
+    fuelType: r.fuel_type,
+    consumptionPer100: Number(r.consumption_per_100),
+    idleRatePerHour: Number(r.idle_rate_per_hour),
+    startingOdometerKm: Number(r.starting_odometer_km),
+    regoExpiryDate: r.rego_expiry_date.toISOString().slice(0, 10),
+  }));
+}
+
 async function main() {
   const days = parseDays();
   const db = { query };
 
-  const vehicles = await loadVehiclesFromDb(db);
+  const vehicles = await loadDefaultOrgVehicles(db);
   if (vehicles.length === 0) {
-    console.log('No vehicles found in the database — run `npm run migrate` and boot the server at least once first.');
+    console.log('No vehicles found for the default org — run `npm run migrate` and boot the server at least once first.');
     return;
   }
 
   console.log(`Backfilling ~${days} simulated operating days across ${vehicles.length} vehicles...`);
-  const summary = await backfillVehicleHistory(db, vehicles, { days });
-  const alertsInserted = await backfillAlerts(db, vehicles, { days });
+  const summary = await backfillVehicleHistory(db, vehicles, { days }, 'default');
+  const alertsInserted = await backfillAlerts(db, vehicles, { days }, 'default');
 
   for (const v of summary) {
     console.log(`  ${v.id}: +${v.addedKm} km, +${v.addedCO2Kg} kg CO2, +${v.addedTrips} trips`);

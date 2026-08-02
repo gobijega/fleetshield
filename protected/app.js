@@ -61,6 +61,7 @@ document.querySelectorAll('.tab-btn').forEach((btn) => {
     document.getElementById(`tab-${btn.dataset.tab}`).classList.add('active');
     if (btn.dataset.tab === 'reports') loadReports();
     if (btn.dataset.tab === 'compliance') loadCompliance();
+    if (btn.dataset.tab === 'fleet') loadFleetTab();
     if (btn.dataset.tab === 'map') setTimeout(() => map.invalidateSize(), 50);
   });
 });
@@ -315,6 +316,76 @@ function complianceSev(status) {
   if (status === 'due_soon') return 'medium';
   return 'good';
 }
+
+// ---------------------------------------------------------------------------
+// Fleet & Billing tab
+// ---------------------------------------------------------------------------
+// Subscription is $17.50 AUD/vehicle/month, quantity synced automatically
+// to whatever's shown here — adding/removing a vehicle updates the Stripe
+// subscription's billed quantity server-side (see POST/DELETE
+// /api/vehicles in server.js). No payment details are handled by this
+// page; card collection only ever happens on Stripe's own signup Checkout.
+async function loadFleetTab() {
+  const [meRes, vehiclesRes] = await Promise.all([
+    authedFetch('/api/me'),
+    authedFetch('/api/vehicles'),
+  ]);
+  const me = await meRes.json();
+  const vehicles = await vehiclesRes.json();
+
+  const monthlyTotal = (vehicles.length * me.pricePerVehicleAud).toFixed(2);
+  document.getElementById('billingCards').innerHTML = `
+    <div class="card"><div class="value">${vehicles.length}</div><div class="label">Vehicles billed</div></div>
+    <div class="card"><div class="value">$${me.pricePerVehicleAud.toFixed(2)}</div><div class="label">Per vehicle / month (AUD)</div></div>
+    <div class="card"><div class="value">$${monthlyTotal}</div><div class="label">Estimated monthly total (AUD)</div></div>
+    <div class="card"><div class="value" style="font-size:16px;">${me.subscriptionStatus}</div><div class="label">Subscription status</div></div>
+  `;
+
+  const list = document.getElementById('fleetVehicleList');
+  list.innerHTML = vehicles
+    .map(
+      (v) => `
+    <div class="geofence-card">
+      <div>
+        <div>${v.label} <span class="gf-type custom">${v.fuelType.toUpperCase()}</span></div>
+        <div class="meta">${v.driver || 'No driver assigned'} · ${v.id}</div>
+      </div>
+      <button data-id="${v.id}">Remove</button>
+    </div>`
+    )
+    .join('') || '<p class="hint">No vehicles yet — add your first one.</p>';
+
+  list.querySelectorAll('button[data-id]').forEach((btn) => {
+    btn.addEventListener('click', async () => {
+      if (!confirm('Remove this vehicle? This also lowers your monthly bill by $17.50.')) return;
+      await authedFetch(`/api/vehicles/${btn.dataset.id}`, { method: 'DELETE' });
+      loadFleetTab();
+    });
+  });
+}
+
+document.getElementById('addVehicleForm').addEventListener('submit', async (e) => {
+  e.preventDefault();
+  const errorEl = document.getElementById('addVehicleError');
+  errorEl.textContent = '';
+  const body = {
+    label: document.getElementById('vLabel').value,
+    driver: document.getElementById('vDriver').value || undefined,
+    fuelType: document.getElementById('vFuelType').value,
+  };
+  const res = await authedFetch('/api/vehicles', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify(body),
+  });
+  if (!res.ok) {
+    const data = await res.json().catch(() => ({}));
+    errorEl.textContent = data.error || 'Could not add vehicle.';
+    return;
+  }
+  e.target.reset();
+  loadFleetTab();
+});
 
 // ---------------------------------------------------------------------------
 // Geofencing tab

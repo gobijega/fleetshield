@@ -1,0 +1,56 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<title>Fleet Shield — Create Your Account</title>
+<link rel="icon" href="/brand/favicon.svg" type="image/svg+xml" />
+<link rel="preconnect" href="https://fonts.googleapis.com" />
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+<link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600&family=IBM+Plex+Mono:wght@400;500;600&display=swap" rel="stylesheet" />
+<link rel="stylesheet" href="login.css" />
+<link rel="stylesheet" href="signup.css" />
+</head>
+<body>
+  <div class="login-wrap">
+    <div class="login-card signup-card">
+      <div class="login-logo">
+        <span class="cursor">_</span>JEGA<span class="sec">SEC</span>
+      </div>
+      <div class="login-product">Fleet Shield</div>
+      <div class="login-eyebrow">— Create your account</div>
+      <p class="signup-price">AUD $17.50 per vehicle / month · billed monthly · cancel anytime</p>
+
+      <form id="signupForm">
+        <label>Organisation name
+          <input type="text" id="orgName" name="orgName" required autofocus />
+        </label>
+        <label>Contact name
+          <input type="text" id="contactName" name="contactName" />
+        </label>
+        <label>Contact email
+          <input type="email" id="contactEmail" name="contactEmail" required />
+        </label>
+        <label>Username
+          <input type="text" id="username" name="username" autocomplete="username" required minlength="3" maxlength="50" />
+        </label>
+        <label>Password
+          <input type="password" id="password" name="password" autocomplete="new-password" required minlength="12" />
+          <span class="field-hint">At least 12 characters.</span>
+        </label>
+        <button type="submit" id="signupBtn">Continue to payment</button>
+        <div class="login-error" id="signupError"></div>
+      </form>
+
+      <p class="signup-footnote">
+        You'll be redirected to Stripe's secure checkout to add a payment
+        method — Fleet Shield never sees or stores your card details.
+        Already have an account? <a href="/login.html">Sign in</a>.
+      </p>
+    </div>
+    <div class="login-footnote">JEGASEC Defence Technologies Pty Ltd</div>
+  </div>
+
+  <script src="signup.js"></script>
+</body>
+</html>

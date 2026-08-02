@@ -1,18 +1,23 @@
 /**
- * Admin authentication for the Fleet Shield dashboard.
+ * Multi-tenant authentication for the Fleet Shield dashboard.
  *
- * Single-admin session gate: one username/password (bcrypt hash) configured
- * via environment variables, backed by a signed session cookie. Protects the
- * dashboard static files, the REST API, and the WebSocket stream (via
- * verifyClient on the WS upgrade — otherwise someone could bypass the login
- * page and connect straight to /ws).
+ * Each organization (tenant) has exactly one admin login, stored in the
+ * `organizations` table (admin_username / admin_password_hash / optional
+ * admin_totp_secret) rather than a single hardcoded env-var account — this
+ * is what lets multiple customers each sign up and get their own isolated
+ * fleet. The original single-admin deployment is preserved as the
+ * 'default' org (bootstrapped from ADMIN_USERNAME/ADMIN_PASSWORD_HASH at
+ * boot in server.js) so nothing changes for the existing production login.
  *
- * Also handles: optional TOTP-based MFA as a second login step, a
- * double-submit CSRF cookie for state-changing API requests, and an audit
- * trail of security-relevant events (login/MFA success+failure, logout).
+ * A successful session carries both `authenticated` and `orgId` — every
+ * downstream route and the WebSocket upgrade check use `orgId` to scope
+ * data access, so one tenant can never see another's fleet.
  *
- * This is deliberately single-account (no user table, no roles) to match
- * the MVP's scope. See README for how multi-user auth would replace this.
+ * Also handles: optional TOTP-based MFA as a second login step (per org),
+ * a double-submit CSRF cookie for state-changing API requests, and an
+ * audit trail of security-relevant events (login/MFA success+failure,
+ * logout) — unchanged in spirit from the single-admin version, just now
+ * looked up per org instead of compared against env vars.
  */
 const crypto = require('crypto');
 const session = require('express-session');
@@ -21,31 +26,15 @@ const cookie = require('cookie');
 const cookieSignature = require('cookie-signature');
 const { authenticator } = require('otplib');
 const db = require('./db');
+const { findOrgByUsername, findOrgById } = require('./lib/organizations');
 
 const SESSION_COOKIE_NAME = 'fs.sid';
 const CSRF_COOKIE_NAME = 'fs.csrf';
 const SESSION_SECRET = process.env.SESSION_SECRET;
-const ADMIN_USERNAME = process.env.ADMIN_USERNAME;
-const ADMIN_PASSWORD_HASH = process.env.ADMIN_PASSWORD_HASH;
-// Optional — if set, MFA is required on top of the password. Generate with
-// `npm run setup-mfa`. Deliberately optional (not exit-if-missing like the
-// other three) so existing deployments keep working password-only until
-// someone deliberately turns MFA on.
-const ADMIN_TOTP_SECRET = process.env.ADMIN_TOTP_SECRET || null;
 
-if (!SESSION_SECRET || !ADMIN_USERNAME || !ADMIN_PASSWORD_HASH) {
-  console.error(
-    'Missing auth environment variables. Required: SESSION_SECRET, ADMIN_USERNAME, ADMIN_PASSWORD_HASH.\n' +
-    'Generate a password hash with: npm run hash-password -- "your-password"'
-  );
+if (!SESSION_SECRET) {
+  console.error('Missing SESSION_SECRET environment variable.');
   process.exit(1);
-}
-
-if (!ADMIN_TOTP_SECRET) {
-  console.warn(
-    'ADMIN_TOTP_SECRET not set — logging in only requires a password. ' +
-    'Run `npm run setup-mfa` and set ADMIN_TOTP_SECRET to require a second factor.'
-  );
 }
 
 // A pending-MFA session (password verified, code not yet entered) expires
@@ -72,7 +61,8 @@ const sessionMiddleware = session({
 // --- basic brute-force throttling (in-memory, per-IP) -----------------------
 // Shared between the password step and the MFA-code step — both are things
 // an attacker could try to brute force, so both count against the same
-// per-IP budget.
+// per-IP budget. Per-IP rather than per-org since a login attempt doesn't
+// resolve to an org until after the username is checked.
 const LOGIN_MAX_ATTEMPTS = 10;
 const LOGIN_WINDOW_MS = 15 * 60 * 1000;
 const loginAttempts = new Map(); // ip -> { count, windowStart }
@@ -107,11 +97,11 @@ function clearAttempts(ip) {
 // security-relevant action (login/logout/MFA) succeeded. Still never
 // throws: a database hiccup shouldn't be able to lock an admin out, it just
 // means that one audit entry didn't make it (logged to stderr).
-async function audit(eventType, { username = null, ip = null, success = true, detail = null } = {}) {
+async function audit(eventType, { orgId = null, username = null, ip = null, success = true, detail = null } = {}) {
   try {
     await db.query(
-      `INSERT INTO audit_log (event_type, username, ip, success, detail) VALUES ($1,$2,$3,$4,$5)`,
-      [eventType, username, ip, success, detail]
+      `INSERT INTO audit_log (event_type, username, ip, success, detail, org_id) VALUES ($1,$2,$3,$4,$5,$6)`,
+      [eventType, username, ip, success, detail, orgId]
     );
   } catch (err) {
     console.error('Failed to write audit log entry', err.message);
@@ -119,12 +109,6 @@ async function audit(eventType, { username = null, ip = null, success = true, de
 }
 
 // --- CSRF (double-submit cookie) ----------------------------------------
-// Issued alongside the session cookie once a login is fully complete
-// (after MFA, if configured). Not httpOnly — the frontend JS needs to read
-// it to echo it back as a header; that's the point of the pattern: a
-// cross-site page can trigger a request with the session cookie attached
-// automatically, but it can't read this cookie's value to forge the header,
-// since cookies are scoped to the origin that set them.
 function issueCsrfCookie(res) {
   const token = crypto.randomBytes(24).toString('hex');
   res.cookie(CSRF_COOKIE_NAME, token, {
@@ -140,11 +124,6 @@ function clearCsrfCookie(res) {
   res.clearCookie(CSRF_COOKIE_NAME);
 }
 
-// Only enforced on mutating methods — GET/HEAD/OPTIONS are unaffected so
-// this can be mounted broadly without touching read endpoints. Parses the
-// cookie header directly (via the same `cookie` package already used for
-// the WS auth check) rather than pulling in cookie-parser as a dependency
-// just for this one read.
 function requireCsrf(req, res, next) {
   if (['GET', 'HEAD', 'OPTIONS'].includes(req.method)) return next();
   const cookies = cookie.parse(req.headers.cookie || '');
@@ -168,9 +147,10 @@ function attachAuthRoutes(app) {
     if (!username || !password) {
       return res.status(400).json({ error: 'Username and password are required.' });
     }
-    const validUsername = username === ADMIN_USERNAME;
-    const validPassword = validUsername && (await bcrypt.compare(password, ADMIN_PASSWORD_HASH));
-    if (!validUsername || !validPassword) {
+
+    const org = await findOrgByUsername(db, username);
+    const validPassword = org && (await bcrypt.compare(password, org.admin_password_hash));
+    if (!org || !validPassword) {
       recordFailedAttempt(ip);
       await audit('login_failed', { username, ip, success: false });
       return res.status(401).json({ error: 'Invalid username or password.' });
@@ -179,13 +159,14 @@ function attachAuthRoutes(app) {
     req.session.regenerate(async (err) => {
       if (err) return res.status(500).json({ error: 'Could not start session.' });
 
-      if (ADMIN_TOTP_SECRET) {
+      if (org.admin_totp_secret) {
         // Password correct, but not authenticated yet — the MFA step still
         // has to succeed. Deliberately does NOT set `authenticated`, so
         // requireAuth/verifyWsClient keep blocking this session until then.
         clearAttempts(ip);
         req.session.pendingMfa = true;
         req.session.pendingMfaAt = Date.now();
+        req.session.pendingOrgId = org.id;
         req.session.username = username;
         req.session.save((err2) => {
           if (err2) return res.status(500).json({ error: 'Could not save session.' });
@@ -196,11 +177,12 @@ function attachAuthRoutes(app) {
 
       clearAttempts(ip);
       req.session.authenticated = true;
+      req.session.orgId = org.id;
       req.session.username = username;
       req.session.save(async (err2) => {
         if (err2) return res.status(500).json({ error: 'Could not save session.' });
         issueCsrfCookie(res);
-        await audit('login_success', { username, ip });
+        await audit('login_success', { orgId: org.id, username, ip });
         res.json({ ok: true, mfaRequired: false });
       });
     });
@@ -211,10 +193,7 @@ function attachAuthRoutes(app) {
     if (isRateLimited(ip)) {
       return res.status(429).json({ error: 'Too many attempts. Try again in a few minutes.' });
     }
-    if (!ADMIN_TOTP_SECRET) {
-      return res.status(400).json({ error: 'MFA is not configured.' });
-    }
-    if (!req.session || !req.session.pendingMfa) {
+    if (!req.session || !req.session.pendingMfa || !req.session.pendingOrgId) {
       return res.status(401).json({ error: 'No login in progress. Sign in again.' });
     }
     if (Date.now() - (req.session.pendingMfaAt || 0) > MFA_PENDING_WINDOW_MS) {
@@ -222,42 +201,50 @@ function attachAuthRoutes(app) {
       return res.status(401).json({ error: 'That took too long — sign in again.' });
     }
 
+    const org = await findOrgById(db, req.session.pendingOrgId);
     const { token } = req.body || {};
-    const valid = typeof token === 'string' && authenticator.verify({ token, secret: ADMIN_TOTP_SECRET });
+    const valid = org && org.admin_totp_secret && typeof token === 'string' &&
+      authenticator.verify({ token, secret: org.admin_totp_secret });
 
     if (!valid) {
       recordFailedAttempt(ip);
-      await audit('mfa_failed', { username: req.session.username, ip, success: false });
+      await audit('mfa_failed', { orgId: req.session.pendingOrgId, username: req.session.username, ip, success: false });
       return res.status(401).json({ error: 'Invalid or expired code.' });
     }
 
     clearAttempts(ip);
     const username = req.session.username;
     req.session.authenticated = true;
+    req.session.orgId = org.id;
     delete req.session.pendingMfa;
     delete req.session.pendingMfaAt;
+    delete req.session.pendingOrgId;
     req.session.save(async (err) => {
       if (err) return res.status(500).json({ error: 'Could not save session.' });
       issueCsrfCookie(res);
-      await audit('login_success', { username, ip, detail: 'mfa' });
+      await audit('login_success', { orgId: org.id, username, ip, detail: 'mfa' });
       res.json({ ok: true });
     });
   });
 
   app.post('/api/logout', (req, res) => {
     const username = req.session && req.session.username;
+    const orgId = req.session && req.session.orgId;
     const ip = req.ip;
     req.session.destroy(async () => {
       res.clearCookie(SESSION_COOKIE_NAME);
       clearCsrfCookie(res);
-      await audit('logout', { username, ip });
+      await audit('logout', { orgId, username, ip });
       res.json({ ok: true });
     });
   });
 }
 
 function requireAuth(req, res, next) {
-  if (req.session && req.session.authenticated) return next();
+  if (req.session && req.session.authenticated && req.session.orgId) {
+    req.orgId = req.session.orgId;
+    return next();
+  }
   if (req.path.startsWith('/api/')) {
     return res.status(401).json({ error: 'Not authenticated.' });
   }
@@ -267,7 +254,9 @@ function requireAuth(req, res, next) {
 // --- WebSocket upgrade auth ----------------------------------------------
 // ws's verifyClient runs before the HTTP connection is upgraded, so it's the
 // right place to reject unauthenticated socket connections outright rather
-// than relying only on the page-level redirect.
+// than relying only on the page-level redirect. Stashes orgId onto the
+// upgrade request so server.js's 'connection' handler (which receives that
+// same request object) can scope the WS feed to the right tenant.
 function verifyWsClient(info, done) {
   try {
     const cookies = cookie.parse(info.req.headers.cookie || '');
@@ -276,9 +265,10 @@ function verifyWsClient(info, done) {
     const sid = cookieSignature.unsign(raw.slice(2), SESSION_SECRET);
     if (!sid) return done(false, 401, 'Unauthorized');
     sessionStore.get(sid, (err, sessionData) => {
-      if (err || !sessionData || !sessionData.authenticated) {
+      if (err || !sessionData || !sessionData.authenticated || !sessionData.orgId) {
         return done(false, 401, 'Unauthorized');
       }
+      info.req.orgId = sessionData.orgId;
       done(true);
     });
   } catch (err) {
