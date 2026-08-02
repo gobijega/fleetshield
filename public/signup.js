@@ -5,10 +5,50 @@
 const form = document.getElementById('signupForm');
 const errorEl = document.getElementById('signupError');
 const btn = document.getElementById('signupBtn');
+const emailInput = document.getElementById('contactEmail');
+const passwordInput = document.getElementById('password');
+const confirmPasswordInput = document.getElementById('confirmPassword');
+const confirmPasswordHint = document.getElementById('confirmPasswordHint');
+
+// Same shape the server checks (see validateSignupInput in server.js) —
+// this is just for instant feedback; the server is the source of truth
+// and re-validates everything regardless of what the client sends.
+const EMAIL_RE = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
+
+function updateConfirmPasswordHint() {
+  if (!confirmPasswordInput.value) {
+    confirmPasswordHint.textContent = '';
+    confirmPasswordHint.className = 'field-hint';
+    return true;
+  }
+  const matches = passwordInput.value === confirmPasswordInput.value;
+  confirmPasswordHint.textContent = matches ? 'Passwords match.' : 'Passwords do not match.';
+  confirmPasswordHint.className = matches ? 'field-hint success' : 'field-hint error';
+  return matches;
+}
+passwordInput.addEventListener('input', updateConfirmPasswordHint);
+confirmPasswordInput.addEventListener('input', updateConfirmPasswordHint);
 
 form.addEventListener('submit', async (e) => {
   e.preventDefault();
   errorEl.textContent = '';
+
+  const contactEmail = emailInput.value.trim();
+  const password = passwordInput.value;
+  const confirmPassword = confirmPasswordInput.value;
+
+  if (!EMAIL_RE.test(contactEmail)) {
+    errorEl.textContent = 'Please enter a valid email address.';
+    emailInput.focus();
+    return;
+  }
+  if (password !== confirmPassword) {
+    updateConfirmPasswordHint();
+    errorEl.textContent = 'Passwords do not match — please re-enter them.';
+    confirmPasswordInput.focus();
+    return;
+  }
+
   btn.disabled = true;
   btn.textContent = 'Setting up your account…';
   try {
@@ -18,9 +58,10 @@ form.addEventListener('submit', async (e) => {
       body: JSON.stringify({
         orgName: document.getElementById('orgName').value,
         contactName: document.getElementById('contactName').value,
-        contactEmail: document.getElementById('contactEmail').value,
+        contactEmail,
         username: document.getElementById('username').value,
-        password: document.getElementById('password').value,
+        password,
+        confirmPassword,
       }),
     });
     const data = await res.json().catch(() => ({}));

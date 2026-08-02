@@ -597,13 +597,25 @@ app.get('/api/health', async (req, res) => {
 
 const PASSWORD_MIN_LENGTH = 12;
 const NAME_MAX_LEN = 150;
+// RFC 5321 caps a full email address at 254 characters — this isn't a
+// "true" RFC 5322 validator (nothing short of actually sending a
+// confirmation email is), just a sanity check that rejects obviously
+// malformed input (no @, no domain, no TLD, whitespace, or absurd length)
+// before it reaches the database / Stripe customer record.
+const EMAIL_MAX_LEN = 254;
+const EMAIL_RE = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
 
 function validateSignupInput(body) {
-  const { orgName, contactName, contactEmail, username, password } = body || {};
+  const { orgName, contactName, contactEmail, username, password, confirmPassword } = body || {};
   if (typeof orgName !== 'string' || !orgName.trim() || orgName.length > NAME_MAX_LEN) {
     return 'Organisation name is required.';
   }
-  if (typeof contactEmail !== 'string' || !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(contactEmail)) {
+  if (
+    typeof contactEmail !== 'string' ||
+    contactEmail.trim().length === 0 ||
+    contactEmail.length > EMAIL_MAX_LEN ||
+    !EMAIL_RE.test(contactEmail.trim())
+  ) {
     return 'A valid contact email is required.';
   }
   if (typeof username !== 'string' || !/^[a-zA-Z0-9_.-]{3,50}$/.test(username)) {
@@ -611,6 +623,13 @@ function validateSignupInput(body) {
   }
   if (typeof password !== 'string' || password.length < PASSWORD_MIN_LENGTH) {
     return `Password must be at least ${PASSWORD_MIN_LENGTH} characters.`;
+  }
+  // Confirms the user typed the password they meant to — a plain typo in a
+  // masked field would otherwise lock them out of an account they can't
+  // get back into (no "forgot password" flow yet). Required, not optional,
+  // so this also covers direct API callers that skip the signup form.
+  if (typeof confirmPassword !== 'string' || confirmPassword !== password) {
+    return 'Passwords do not match.';
   }
   if (contactName !== undefined && (typeof contactName !== 'string' || contactName.length > NAME_MAX_LEN)) {
     return 'Contact name is too long.';

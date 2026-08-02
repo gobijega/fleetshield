@@ -52,6 +52,9 @@
   color: var(--muted);
 }
 
+.field-hint.error { color: var(--red); }
+.field-hint.success { color: var(--accent); }
+
 #signupForm button {
   width: 100%;
   margin-top: 6px;

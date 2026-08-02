@@ -38,6 +38,10 @@
           <input type="password" id="password" name="password" autocomplete="new-password" required minlength="12" />
           <span class="field-hint">At least 12 characters.</span>
         </label>
+        <label>Confirm password
+          <input type="password" id="confirmPassword" name="confirmPassword" autocomplete="new-password" required minlength="12" />
+          <span class="field-hint" id="confirmPasswordHint"></span>
+        </label>
         <button type="submit" id="signupBtn">Continue to payment</button>
         <div class="login-error" id="signupError"></div>
       </form>
