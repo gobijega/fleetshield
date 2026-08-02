@@ -188,6 +188,9 @@ main { padding: 20px 24px 40px; max-width: 1400px; margin: 0 auto; }
 .sev-good { background: rgba(0,255,65,0.12); color: var(--green); }
 
 .hint { color: var(--muted); font-size: 13px; margin-top: 4px; }
+.hint.error { color: var(--red); }
+
+.card .value.value--sm { font-size: 16px; }
 
 .cards { display: flex; gap: 14px; margin: 16px 0; flex-wrap: wrap; }
 .card {

@@ -338,7 +338,7 @@ async function loadFleetTab() {
     <div class="card"><div class="value">${vehicles.length}</div><div class="label">Vehicles billed</div></div>
     <div class="card"><div class="value">$${me.pricePerVehicleAud.toFixed(2)}</div><div class="label">Per vehicle / month (AUD)</div></div>
     <div class="card"><div class="value">$${monthlyTotal}</div><div class="label">Estimated monthly total (AUD)</div></div>
-    <div class="card"><div class="value" style="font-size:16px;">${me.subscriptionStatus}</div><div class="label">Subscription status</div></div>
+    <div class="card"><div class="value value--sm">${me.subscriptionStatus}</div><div class="label">Subscription status</div></div>
   `;
 
   const list = document.getElementById('fleetVehicleList');
