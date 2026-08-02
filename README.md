@@ -220,8 +220,9 @@ instance (Timescale Cloud) plus a persistent, WebSocket-capable host (Render).
 | GET | `/api/audit?limit=` | Security audit trail: login/MFA/logout events, geofence/vehicle changes |
 | GET | `/api/health` | Server + database connectivity check |
 | GET | `/api/me` | Current org's name, subscription status, vehicle count |
-| POST | `/api/vehicles` | Add a vehicle: `{ label, driver?, fuelType }` — syncs Stripe subscription quantity |
-| DELETE | `/api/vehicles/:id` | Remove a vehicle — syncs Stripe subscription quantity down |
+| POST | `/api/vehicles/checkout` | Start a $17.50 AUD one-time Stripe Checkout for adding a vehicle: `{ label, driver?, fuelType }`, returns `{ checkoutUrl }`. The vehicle is created by the Stripe webhook once payment is confirmed — not by this call. |
+| POST | `/api/vehicles` | Add a vehicle directly, no payment prompt: `{ label, driver?, fuelType }`. Only usable when billing is disabled on this deployment (returns 400 otherwise) — see `/api/vehicles/checkout`. |
+| DELETE | `/api/vehicles/:id` | Remove a vehicle — syncs Stripe subscription quantity down (prorated credit) |
 | POST | `/api/signup` (public) | Create an organization + admin account: `{ orgName, contactName?, contactEmail, username, password }`, returns a Stripe Checkout URL |
 | POST | `/api/webhooks/stripe` (public) | Stripe webhook receiver — signature-verified, not for direct use |
 

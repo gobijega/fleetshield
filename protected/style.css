@@ -189,6 +189,7 @@ main { padding: 20px 24px 40px; max-width: 1400px; margin: 0 auto; }
 
 .hint { color: var(--muted); font-size: 13px; margin-top: 4px; }
 .hint.error { color: var(--red); }
+.hint.success { color: var(--green); }
 
 .card .value.value--sm { font-size: 16px; }
 

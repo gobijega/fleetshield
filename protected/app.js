@@ -364,28 +364,92 @@ async function loadFleetTab() {
   });
 }
 
+// Submitting "Add Vehicle" no longer adds the vehicle directly — it starts a
+// one-time $17.50 Stripe Checkout payment and sends the browser there. The
+// vehicle only actually gets created after Stripe confirms payment (see the
+// webhook handler in server.js); this page picks the flow back up in
+// handleCheckoutReturn() below once Stripe redirects back to us.
 document.getElementById('addVehicleForm').addEventListener('submit', async (e) => {
   e.preventDefault();
   const errorEl = document.getElementById('addVehicleError');
   errorEl.textContent = '';
+  const submitBtn = e.target.querySelector('button[type="submit"]');
   const body = {
     label: document.getElementById('vLabel').value,
     driver: document.getElementById('vDriver').value || undefined,
     fuelType: document.getElementById('vFuelType').value,
   };
-  const res = await authedFetch('/api/vehicles', {
-    method: 'POST',
-    headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify(body),
-  });
-  if (!res.ok) {
+  submitBtn.disabled = true;
+  try {
+    const res = await authedFetch('/api/vehicles/checkout', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(body),
+    });
     const data = await res.json().catch(() => ({}));
-    errorEl.textContent = data.error || 'Could not add vehicle.';
+    if (!res.ok) {
+      errorEl.textContent = data.error || 'Could not add vehicle.';
+      submitBtn.disabled = false;
+      return;
+    }
+    if (data.checkoutUrl) {
+      // Billing enabled — redirect to Stripe's hosted payment page.
+      window.location.href = data.checkoutUrl;
+      return; // leaving the page; no need to re-enable the button
+    }
+    // Billing not configured on this deployment — server added the vehicle
+    // directly with no payment step (see POST /api/vehicles in server.js).
+    e.target.reset();
+    await loadFleetTab();
+    submitBtn.disabled = false;
+  } catch (err) {
+    errorEl.textContent = 'Could not start payment. Please try again.';
+    submitBtn.disabled = false;
+  }
+});
+
+// Stripe redirects back to `${APP_BASE_URL}/?vehicleAdded=1&session_id=...`
+// (success) or `/?vehicleCancelled=1` (cancel/back button) — see
+// success_url/cancel_url in lib/billing.js's createVehicleAddCheckoutSession.
+// The webhook usually creates the vehicle within a second or two of payment,
+// but can lag slightly behind this redirect, so on success we poll
+// GET /api/vehicles briefly rather than assuming it's there on the first load.
+async function handleCheckoutReturn() {
+  const params = new URLSearchParams(window.location.search);
+  const added = params.get('vehicleAdded') === '1';
+  const cancelled = params.get('vehicleCancelled') === '1';
+  if (!added && !cancelled) return;
+
+  // Clean the URL immediately so a page refresh doesn't re-trigger this.
+  window.history.replaceState({}, '', window.location.pathname);
+
+  document.querySelectorAll('.tab-btn').forEach((b) => b.classList.remove('active'));
+  document.querySelectorAll('.tab-panel').forEach((p) => p.classList.remove('active'));
+  document.querySelector('.tab-btn[data-tab="fleet"]').classList.add('active');
+  document.getElementById('tab-fleet').classList.add('active');
+
+  const statusEl = document.getElementById('fleetStatusMsg');
+  if (cancelled) {
+    statusEl.textContent = 'Payment cancelled — no vehicle was added.';
+    statusEl.className = 'hint error';
+    await loadFleetTab();
     return;
   }
-  e.target.reset();
-  loadFleetTab();
-});
+
+  statusEl.textContent = 'Payment received — adding your vehicle…';
+  statusEl.className = 'hint success';
+  const countBefore = (await (await authedFetch('/api/vehicles')).json()).length;
+  for (let attempt = 0; attempt < 6; attempt++) {
+    await loadFleetTab();
+    const vehicles = await (await authedFetch('/api/vehicles')).json();
+    if (vehicles.length > countBefore) {
+      statusEl.textContent = 'Vehicle added — your subscription now includes it.';
+      return;
+    }
+    await new Promise((r) => setTimeout(r, 1200));
+  }
+  statusEl.textContent = 'Payment received — still finalizing, refresh in a moment if it doesn’t appear.';
+}
 
 // ---------------------------------------------------------------------------
 // Geofencing tab
@@ -483,3 +547,4 @@ function connect() {
 }
 
 connect();
+handleCheckoutReturn();

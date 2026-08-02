@@ -498,8 +498,10 @@ app.post('/api/webhooks/stripe', express.raw({ type: 'application/json' }), asyn
     switch (event.type) {
       case 'checkout.session.completed': {
         const session = event.data.object;
-        const orgId = session.client_reference_id;
-        if (orgId && session.subscription) {
+        const orgId = session.client_reference_id || session.metadata?.orgId;
+
+        if (orgId && session.mode === 'subscription' && session.subscription) {
+          // Initial signup Checkout — establishes the recurring subscription.
           const subscription = await billing.retrieveSubscription(session.subscription);
           const subItemId = subscription.items.data[0]?.id;
           await orgs.setStripeSubscription(db, orgId, {
@@ -508,6 +510,22 @@ app.post('/api/webhooks/stripe', express.raw({ type: 'application/json' }), asyn
             status: subscription.status, // 'active' or 'trialing'
           });
           await audit('subscription_activated', { orgId, detail: subscription.id });
+        } else if (orgId && session.mode === 'payment' && session.metadata?.action === 'add_vehicle') {
+          // Paid Add Vehicle flow — only create the vehicle now that Stripe
+          // confirms the $17.50 one-time charge actually succeeded.
+          const org = await orgs.findOrgById(db, orgId);
+          if (!org) {
+            console.error(`add_vehicle webhook: no org found for ${orgId}`);
+            break;
+          }
+          const { label, driver, fuelType } = session.metadata;
+          const v = await insertVehicleForOrg(orgId, { label, driver, fuelType });
+          await audit('vehicle_added', { orgId, detail: `${v.id}: ${v.label} (paid via Checkout, session ${session.id})` });
+          const orgState = getOrgState(orgId);
+          // prorationBehavior: 'none' — the customer already paid the
+          // equivalent amount via this one-time charge, so don't also
+          // generate a prorated charge for the rest of the current period.
+          await syncOrgSubscriptionQuantity(org, orgState.vehicles.size, 'none');
         }
         break;
       }
@@ -700,13 +718,14 @@ function validateVehicleInput(body) {
   return null;
 }
 
-async function syncOrgSubscriptionQuantity(org, vehicleCount) {
+async function syncOrgSubscriptionQuantity(org, vehicleCount, prorationBehavior = 'create_prorations') {
   if (!billing.billingEnabled || !org.stripe_sub_item_id) return;
   try {
     await billing.syncSubscriptionQuantity({
       subscriptionId: org.stripe_subscription_id,
       subItemId: org.stripe_sub_item_id,
       quantity: vehicleCount,
+      prorationBehavior,
     });
   } catch (err) {
     // Never block the vehicle add/remove on a billing hiccup — log loudly
@@ -715,12 +734,12 @@ async function syncOrgSubscriptionQuantity(org, vehicleCount) {
   }
 }
 
-app.post('/api/vehicles', async (req, res) => {
-  const validationError = validateVehicleInput(req.body);
-  if (validationError) return res.status(400).json({ error: validationError });
-
-  const orgState = getOrgState(req.orgId);
-  const { label, driver, fuelType } = req.body;
+// Shared by POST /api/vehicles (direct add — used when billing is disabled)
+// and the Stripe webhook handler (payment-confirmed add — the normal path
+// once billing is enabled). Inserts the row, seeds the in-memory sim state,
+// and returns the vehicle so the caller can respond/log as appropriate.
+async function insertVehicleForOrg(orgId, { label, driver, fuelType }) {
+  const orgState = getOrgState(orgId);
   const defaults = FUEL_DEFAULTS[fuelType];
   const route = ROUTE_KEYS[orgState.vehicles.size % ROUTE_KEYS.length];
   const regoExpiryDate = new Date(Date.now() + 180 * 86400000).toISOString().slice(0, 10);
@@ -739,20 +758,69 @@ app.post('/api/vehicles', async (req, res) => {
     regoExpiryDate,
   };
 
+  await db.query(
+    `INSERT INTO vehicles
+      (id, label, driver, route, speed_limit, base_speed, fuel_type, consumption_per_100, idle_rate_per_hour, starting_odometer_km, rego_expiry_date, org_id)
+     VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12)`,
+    [v.id, v.label, v.driver, v.route, v.speedLimit, v.baseSpeed, v.fuelType, v.consumptionPer100, v.idleRatePerHour, v.startingOdometerKm, v.regoExpiryDate, orgId]
+  );
+  await initVehiclesForOrg(orgId, [v]);
+  return v;
+}
+
+// Direct add, no payment prompt — only reachable when billing isn't
+// configured on this deployment (see POST /api/vehicles/checkout below for
+// the normal, payment-gated path). Kept so local/dev environments without
+// Stripe env vars still have a working "Add Vehicle" button.
+app.post('/api/vehicles', async (req, res) => {
+  if (billing.billingEnabled) {
+    return res.status(400).json({ error: 'Use POST /api/vehicles/checkout — adding a vehicle requires payment on this deployment.' });
+  }
+  const validationError = validateVehicleInput(req.body);
+  if (validationError) return res.status(400).json({ error: validationError });
+
+  const { label, driver, fuelType } = req.body;
   try {
-    await db.query(
-      `INSERT INTO vehicles
-        (id, label, driver, route, speed_limit, base_speed, fuel_type, consumption_per_100, idle_rate_per_hour, starting_odometer_km, rego_expiry_date, org_id)
-       VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12)`,
-      [v.id, v.label, v.driver, v.route, v.speedLimit, v.baseSpeed, v.fuelType, v.consumptionPer100, v.idleRatePerHour, v.startingOdometerKm, v.regoExpiryDate, req.orgId]
-    );
-    await initVehiclesForOrg(req.orgId, [v]);
+    const v = await insertVehicleForOrg(req.orgId, { label, driver, fuelType });
     await audit('vehicle_added', { orgId: req.orgId, username: req.session.username, ip: req.ip, detail: `${v.id}: ${v.label}` });
+    const orgState = getOrgState(req.orgId);
     await syncOrgSubscriptionQuantity(req.org, orgState.vehicles.size);
     res.status(201).json(serializeVehicles(orgState).find((sv) => sv.id === v.id));
   } catch (err) {
     console.error(err);
     res.status(500).json({ error: 'insert failed' });
+  }
+});
+
+// Payment-gated add: creates a one-time $17.50 AUD Stripe Checkout session
+// and hands the frontend the URL to redirect to. The vehicle itself is NOT
+// created here — it's created by the webhook handler below, only once
+// Stripe confirms the payment actually went through (checkout.session.completed).
+// This is deliberate: creating the vehicle here (before payment) would let a
+// customer add vehicles for free by never completing Checkout.
+app.post('/api/vehicles/checkout', async (req, res) => {
+  const validationError = validateVehicleInput(req.body);
+  if (validationError) return res.status(400).json({ error: validationError });
+  if (!billing.billingEnabled) {
+    return res.status(400).json({ error: 'Billing is not configured on this deployment.' });
+  }
+  if (!req.org.stripe_customer_id) {
+    return res.status(400).json({ error: 'No Stripe customer on file for this account. Contact support.' });
+  }
+
+  const { label, driver, fuelType } = req.body;
+  try {
+    const session = await billing.createVehicleAddCheckoutSession({
+      orgId: req.orgId,
+      stripeCustomerId: req.org.stripe_customer_id,
+      label: label.trim(),
+      driver: driver ? driver.trim() : '',
+      fuelType,
+    });
+    res.json({ checkoutUrl: session.url });
+  } catch (err) {
+    console.error('Failed to create vehicle-add checkout session:', err);
+    res.status(500).json({ error: 'Could not start payment. Please try again.' });
   }
 });
 
