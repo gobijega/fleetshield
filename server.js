@@ -51,6 +51,17 @@ const billing = require('./lib/billing');
 
 const PORT = process.env.PORT || 3000;
 const TICK_MS = 2000; // simulation heartbeat
+
+// Controlled-beta gate for the public "/api/signup" endpoint. Fleet Shield's
+// Terms of Service, Privacy Notice, and Subscription & Billing Terms are
+// currently drafts pending legal review (see /terms.html, /privacy.html,
+// /billing-terms.html) — until they're approved, unrestricted self-service
+// signup + payment stays disabled by default. Existing accounts and the
+// login flow are completely unaffected by this flag. To re-enable public
+// signup once the legal/privacy work is signed off, set the environment
+// variable PUBLIC_SIGNUP_ENABLED=true on the deployment — no code change
+// required, and nothing about the signup logic itself has been removed.
+const PUBLIC_SIGNUP_ENABLED = process.env.PUBLIC_SIGNUP_ENABLED === 'true';
 const ROUTE_KEYS = Object.keys(ROUTES);
 
 // Fuel-type defaults for vehicles added via the self-service "Add vehicle"
@@ -605,8 +616,24 @@ const NAME_MAX_LEN = 150;
 const EMAIL_MAX_LEN = 254;
 const EMAIL_RE = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
 
+// Bumped whenever the Terms of Service / Privacy Notice / Subscription and
+// Billing Terms change in a way that requires re-agreement. Recorded against
+// every signup so we always know which version of the terms an org agreed
+// to (see the 'org_terms_agreed' audit event below).
+const TERMS_VERSION = '2026-08-03-draft';
+
 function validateSignupInput(body) {
-  const { orgName, contactName, contactEmail, username, password, confirmPassword } = body || {};
+  const { orgName, contactName, contactEmail, username, password, confirmPassword, agreedToTerms } = body || {};
+  // Required, unticked-by-default checkbox on the signup form: "I agree to
+  // the Fleet Shield Terms of Service, Privacy Notice and Subscription and
+  // Billing Terms." This is currently dormant server-side logic — public
+  // signup is disabled (see PUBLIC_SIGNUP_ENABLED above) and signup.html no
+  // longer renders a signup form, so this can't be reached from the public
+  // site today. It's implemented now so re-enabling signup doesn't also
+  // require remembering to add consent enforcement at the same time.
+  if (agreedToTerms !== true) {
+    return 'You must agree to the Terms of Service, Privacy Notice and Subscription and Billing Terms to continue.';
+  }
   if (typeof orgName !== 'string' || !orgName.trim() || orgName.length > NAME_MAX_LEN) {
     return 'Organisation name is required.';
   }
@@ -638,6 +665,12 @@ function validateSignupInput(body) {
 }
 
 app.post('/api/signup', async (req, res) => {
+  if (!PUBLIC_SIGNUP_ENABLED) {
+    return res.status(403).json({
+      error: 'Fleet Shield is currently available through controlled demonstrations, design partnerships and approved pilot deployments. Request beta access at jegasec.com/contact.',
+    });
+  }
+
   const validationError = validateSignupInput(req.body);
   if (validationError) return res.status(400).json({ error: validationError });
 
@@ -658,6 +691,12 @@ app.post('/api/signup', async (req, res) => {
       adminPasswordHash: passwordHash,
     });
     await audit('org_created', { orgId: org.id, username, detail: orgName });
+    // Records the informed-agreement checkbox event: which account, which
+    // version of the terms, and when. Deliberately stored via the existing
+    // audit log rather than a new table, since it's exactly the
+    // account-identifier/document-version/timestamp record required and the
+    // audit infrastructure already exists.
+    await audit('org_terms_agreed', { orgId: org.id, termsVersion: TERMS_VERSION, agreedAt: new Date().toISOString() });
 
     if (!billing.billingEnabled) {
       // Billing not configured on this deployment — mark active so the

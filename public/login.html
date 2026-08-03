@@ -3,7 +3,7 @@
 <head>
 <meta charset="utf-8" />
 <meta name="viewport" content="width=device-width, initial-scale=1" />
-<title>Fleet Shield — Admin Login</title>
+<title>Fleet Shield — Customer Login</title>
 <link rel="icon" href="/brand/favicon.svg" type="image/svg+xml" />
 <link rel="preconnect" href="https://fonts.googleapis.com" />
 <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
@@ -16,7 +16,11 @@
       <div class="login-logo">
         <span class="cursor">_</span>JEGA<span class="sec">SEC</span>
       </div>
-      <div class="login-product">Fleet Shield</div>
+      <div class="login-product">Fleet Shield customer login</div>
+      <p style="text-align: left; color: var(--muted); font-size: 13px; line-height: 1.6; margin: 2px 0 20px;">
+        Access is currently available to approved customers, design partners
+        and pilot participants.
+      </p>
 
       <form id="loginForm">
         <div id="passwordStep">
@@ -28,7 +32,6 @@
           </label>
           <button type="submit" id="loginBtn">Sign in</button>
           <div class="login-error" id="loginError"></div>
-          <p class="signup-footnote">New here? <a href="/signup.html">Create an account</a></p>
         </div>
       </form>
 
@@ -47,6 +50,13 @@
           <div class="login-error" id="mfaError"></div>
         </div>
       </form>
+
+      <p class="signup-footnote" style="line-height: 2;">
+        Not yet a customer? <a href="https://jegasec.com/contact?engagement=demo&product=fleet-shield">Request a demonstration</a>
+        or <a href="https://jegasec.com/contact?engagement=pilot&product=fleet-shield">apply for pilot access</a>.<br />
+        Forgotten your password? <a href="mailto:hello@jegasec.com?subject=Fleet%20Shield%20password%20reset">Contact us</a> to reset it — self-service reset isn't available yet.<br />
+        <a href="/privacy.html">Privacy Notice</a> · <a href="/terms.html">Terms of Service</a>
+      </p>
     </div>
     <div class="login-footnote">Gobi Jegarajasingham trading as JEGASEC Defence Technologies</div>
   </div>

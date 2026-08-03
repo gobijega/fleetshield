@@ -37,6 +37,13 @@ if (!SESSION_SECRET) {
   process.exit(1);
 }
 
+// A fixed decoy hash, compared against on every "org not found" login
+// attempt so an unrecognised username costs roughly the same wall-clock
+// time as a wrong password for a real one -- otherwise the missing
+// bcrypt.compare() on that path would let a caller distinguish "no such
+// account" from "wrong password" purely by response timing.
+const DECOY_PASSWORD_HASH = bcrypt.hashSync('decoy-password-for-timing-safety', 10);
+
 // A pending-MFA session (password verified, code not yet entered) expires
 // after this long — forces starting the login over rather than leaving a
 // half-authenticated session sitting around indefinitely.
@@ -149,7 +156,9 @@ function attachAuthRoutes(app) {
     }
 
     const org = await findOrgByUsername(db, username);
-    const validPassword = org && (await bcrypt.compare(password, org.admin_password_hash));
+    const validPassword = org
+      ? await bcrypt.compare(password, org.admin_password_hash)
+      : await bcrypt.compare(password, DECOY_PASSWORD_HASH);
     if (!org || !validPassword) {
       recordFailedAttempt(ip);
       await audit('login_failed', { username, ip, success: false });
