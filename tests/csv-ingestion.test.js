@@ -318,3 +318,91 @@ describe('import-service.runCsvImport — orchestration', () => {
     assert.ok(writtenRows[0].fuelUsedTotal > 500, 'fuel total should continue accumulating, not reset to zero');
   });
 });
+
+describe('validation-report.buildValidationReport', () => {
+  const { buildValidationReport } = require('../lib/ingestion/validation-report');
+
+  test('categorises rejected rows into distinct metric buckets', () => {
+    const records = [
+      { validationStatus: 'valid', timestampIso: '2026-06-01T08:00:00.000Z' },
+      { validationStatus: 'valid', timestampIso: '2026-06-01T08:05:00.000Z' },
+      { validationStatus: 'invalid', importErrors: ['Duplicate row: vehicle "VIC-01" already has a reading at 2026-06-01T08:00:00.000Z earlier in this file.'] },
+      { validationStatus: 'invalid', importErrors: ['Unknown vehicle identifier "NOT-REAL" (not registered to this organisation).'] },
+      { validationStatus: 'invalid', importErrors: ['lat: above maximum (90)'] },
+      { validationStatus: 'invalid', importErrors: ['timestamp: unparseable timestamp "x" (expected ISO 8601)'] },
+      { validationStatus: 'invalid', importErrors: ['Row has 3 fields, expected 4 (malformed delimiters or quoting).'] },
+    ];
+    const report = buildValidationReport(records, 1000, 1250);
+    assert.equal(report.recordsSubmitted, 7);
+    assert.equal(report.recordsAccepted, 2);
+    assert.equal(report.recordsRejected, 5);
+    assert.equal(report.duplicateRecords, 1);
+    assert.equal(report.unknownVehicles, 1);
+    assert.equal(report.invalidCoordinates, 1);
+    assert.equal(report.invalidTimestamps, 1);
+    assert.equal(report.otherRejections, 1);
+    assert.equal(report.processingDurationMs, 250);
+    assert.equal(report.latestIngestedTimestampIso, '2026-06-01T08:05:00.000Z');
+    assert.ok(Math.abs(report.dataCompletenessPercent - (2 / 7) * 100) < 0.1);
+  });
+
+  test('handles an empty record set without dividing by zero', () => {
+    const report = buildValidationReport([], 1000, 1000);
+    assert.equal(report.recordsSubmitted, 0);
+    assert.equal(report.dataCompletenessPercent, 0);
+    assert.equal(report.latestIngestedTimestampIso, null);
+  });
+});
+
+describe('import-service.runCsvImport — validation report is attached', () => {
+  test('a successful import includes a validationReport with real counts', async () => {
+    const text =
+      'vehicle_id,timestamp,lat,lng\n' +
+      'VIC-01,2026-06-01T08:00:00Z,-37.81,144.96\n' +
+      'NOT-REAL,2026-06-01T08:05:00Z,-37.81,144.96\n';
+    const result = await runCsvImport({
+      csvText: text,
+      orgId: 'org_1',
+      vehicles: [VEHICLE_VIC01],
+      getLatestPosition: async () => null,
+      writePositions: async () => {},
+    });
+    assert.ok(result.validationReport);
+    assert.equal(result.validationReport.recordsSubmitted, 2);
+    assert.equal(result.validationReport.recordsAccepted, 1);
+    assert.equal(result.validationReport.unknownVehicles, 1);
+    assert.ok(result.validationReport.processingDurationMs >= 0);
+  });
+
+  test('a fatal file rejection still returns a validationReport (zeroed)', async () => {
+    const result = await runCsvImport({
+      csvText: 'vehicle_id,timestamp\nVIC-01,2026-06-01T08:00:00Z\n',
+      orgId: 'org_1',
+      vehicles: [VEHICLE_VIC01],
+      getLatestPosition: async () => null,
+      writePositions: async () => {},
+    });
+    assert.equal(result.accepted, false);
+    assert.ok(result.validationReport);
+    assert.equal(result.validationReport.recordsSubmitted, 0);
+  });
+});
+
+describe('csv-adapter.parse — canonical record fields (Phase 5 model)', () => {
+  test('populates orgId, sourceRecordId, ingestedAtIso and eventType on every record', () => {
+    const text = 'vehicle_id,timestamp,lat,lng\nVIC-01,2026-06-01T08:00:00Z,-37.81,144.96\n';
+    const before = new Date();
+    const { records } = csvAdapter.parse(
+      { text },
+      { orgVehicleIds: ORG_VEHICLE_IDS, orgId: 'org_test_123' }
+    );
+    const r = records[0];
+    assert.equal(r.orgId, 'org_test_123');
+    assert.equal(r.sourceRecordId, 'csv-row-2');
+    assert.equal(r.eventType, 'position_update');
+    assert.equal(typeof r.ingestedAtIso, 'string');
+    assert.ok(new Date(r.ingestedAtIso) >= before);
+    assert.equal(r.headingDeg, null);
+    assert.equal(r.fuelLevelPercent, null);
+  });
+});

@@ -664,14 +664,21 @@ app.post(
       return res.status(500).json({ error: 'Import failed unexpectedly. No rows were written.' });
     }
 
+    // Detail includes the structured validation-report metrics (see
+    // lib/ingestion/validation-report.js) as compact JSON, so imports are
+    // individually reviewable later via GET /api/audit — the closest thing
+    // this deployment has to an internal import-validation dashboard,
+    // without building and maintaining a separate UI for it.
+    const vr = result.validationReport || {};
+    const metricsSuffix = ` [metrics: submitted=${vr.recordsSubmitted ?? '?'} accepted=${vr.recordsAccepted ?? '?'} rejected=${vr.recordsRejected ?? '?'} duplicates=${vr.duplicateRecords ?? '?'} unknownVehicles=${vr.unknownVehicles ?? '?'} invalidCoords=${vr.invalidCoordinates ?? '?'} invalidTimestamps=${vr.invalidTimestamps ?? '?'} durationMs=${vr.processingDurationMs ?? '?'} completeness=${vr.dataCompletenessPercent ?? '?'}%]`;
     await audit('telemetry_csv_import', {
       orgId: req.orgId,
       username: req.session.username,
       ip: req.ip,
       success: result.accepted,
-      detail: result.accepted
+      detail: (result.accepted
         ? `${result.summary.validRows}/${result.summary.totalRows} row(s) imported across ${result.summary.vehiclesImported} vehicle(s); ${result.invalidRows.length} row(s) rejected.`
-        : `Rejected: ${result.fileErrors.join('; ') || 'no valid rows.'}`,
+        : `Rejected: ${result.fileErrors.join('; ') || 'no valid rows.'}`) + metricsSuffix,
     });
 
     res.status(result.accepted ? 200 : 422).json(result);
@@ -1364,7 +1371,7 @@ async function boot() {
     // something discovered later. Never logs secrets — PUBLIC_SIGNUP_ENABLED
     // is a boolean flag, not a credential.
     if (PUBLIC_SIGNUP_ENABLED) {
-      console.warn('WARNING: PUBLIC_SIGNUP_ENABLED=true — public self-service signup and checkout are LIVE on this deployment. Confirm this is intentional (Terms of Service, Privacy Notice and Subscription & Billing Terms should be founder/legally approved first).');
+      console.warn('WARNING: Public Fleet Shield signup is enabled. (PUBLIC_SIGNUP_ENABLED=true — self-service signup and checkout are LIVE on this deployment. Confirm this is intentional; Terms of Service, Privacy Notice and Subscription & Billing Terms should be founder/legally approved first.)');
     } else {
       console.log('Public signup: disabled (controlled beta). Set PUBLIC_SIGNUP_ENABLED=true to enable.');
     }
