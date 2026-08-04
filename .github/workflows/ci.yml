@@ -1,0 +1,31 @@
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+    branches: [main]
+
+jobs:
+  lint-and-test:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+          cache: 'npm'
+
+      - name: Install dependencies (clean, reproducible)
+        run: npm ci
+
+      - name: Lint
+        run: npm run lint
+
+      - name: Test (includes signup-flag, prohibited-claims, CSV ingestion, contact-form and auth tests against real request-handling logic)
+        run: npm test
+
+      - name: Dependency audit
+        run: npm audit --audit-level=high
+        continue-on-error: true
