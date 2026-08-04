@@ -1,0 +1,6 @@
+vehicle_id,timestamp,lat,lng,speed_kmh,ignition,odometer_km,driver_id,source_ref
+VIC-01,2026-06-01T08:00:00Z,-37.8136,144.9631,0,on,62000,J. Ahmed,ref-1
+VIC-01,2026-06-01T08:05:00Z,-37.8150,144.9650,32,on,62002,J. Ahmed,ref-2
+VIC-01,2026-06-01T08:10:00Z,-37.8170,144.9670,28,on,62004,J. Ahmed,ref-3
+VIC-02,2026-06-01T08:00:00Z,-37.8467,144.9789,0,on,58000,S. Nguyen,ref-4
+VIC-02,2026-06-01T08:05:00Z,-37.8479,144.9800,18,on,58001,S. Nguyen,ref-5

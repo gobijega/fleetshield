@@ -1,0 +1,241 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<title>Fleet Shield — Create an account</title>
+<!--
+  FUTURE / NOT YET LIVE.
+
+  This is the complete self-service signup form for when Fleet Shield
+  exits controlled beta. It is only ever served by GET /signup-form.html
+  in server.js, which checks PUBLIC_SIGNUP_ENABLED and returns 404 unless
+  it is explicitly set to true. This file also lives outside public/, so
+  Express's static file middleware can never serve it directly regardless
+  of the flag — the gated route is the only path to it. See
+  docs/founder-decisions-required.md for the unresolved pricing/refund/
+  cancellation decisions referenced below as placeholders.
+-->
+<meta name="robots" content="noindex" />
+<link rel="icon" href="/brand/favicon.svg" type="image/svg+xml" />
+<link rel="preconnect" href="https://fonts.googleapis.com" />
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+<link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600&family=IBM+Plex+Mono:wght@400;500;600&family=Share+Tech+Mono&display=swap" rel="stylesheet" />
+<link rel="stylesheet" href="/login.css" />
+<style>
+  .signup-card { width: 460px; text-align: left; }
+  .signup-price-box {
+    background: var(--bg);
+    border: 1px solid var(--border);
+    padding: 14px 16px;
+    margin: 4px 0 22px;
+    font-size: 13px;
+    line-height: 1.6;
+  }
+  .signup-price-box .price { font-family: 'IBM Plex Mono', monospace; color: var(--accent); font-size: 15px; }
+  .signup-price-box .placeholder { color: var(--muted); font-style: italic; }
+  #signupForm label {
+    display: block;
+    font-family: 'IBM Plex Mono', monospace;
+    font-size: 11px;
+    letter-spacing: 0.08em;
+    text-transform: uppercase;
+    color: var(--muted);
+    margin-bottom: 16px;
+  }
+  #signupForm input, #signupForm select {
+    display: block;
+    width: 100%;
+    margin-top: 6px;
+    background: var(--bg);
+    border: 1px solid var(--border);
+    color: var(--text);
+    padding: 10px 12px;
+    font-size: 14px;
+    font-family: 'Inter', sans-serif;
+    border-radius: 2px;
+  }
+  #signupForm input:focus, #signupForm select:focus {
+    outline: none;
+    border-color: var(--accent);
+    box-shadow: 0 0 0 1px var(--accent);
+  }
+  .signup-checkbox-row {
+    display: flex;
+    align-items: flex-start;
+    gap: 10px;
+    font-size: 12.5px;
+    color: var(--muted);
+    margin-bottom: 18px;
+    text-transform: none;
+    letter-spacing: normal;
+    font-family: 'Inter', sans-serif;
+  }
+  .signup-checkbox-row input[type="checkbox"] { margin-top: 3px; flex-shrink: 0; }
+  .signup-checkbox-row a { color: var(--accent); }
+  #signupForm button {
+    width: 100%;
+    margin-top: 6px;
+    background: var(--accent);
+    color: #04120f;
+    border: none;
+    font-family: 'IBM Plex Mono', monospace;
+    font-weight: 600;
+    text-transform: uppercase;
+    letter-spacing: 0.05em;
+    font-size: 13px;
+    padding: 12px;
+    cursor: pointer;
+    border-radius: 2px;
+  }
+  #signupForm button:disabled { opacity: 0.6; cursor: default; }
+  .signup-error { color: var(--red); font-size: 13px; margin-top: 14px; display: none; }
+  .signup-status { font-size: 13px; margin-top: 14px; display: none; color: var(--accent); }
+</style>
+</head>
+<body>
+  <div class="login-wrap">
+    <div class="login-card signup-card">
+      <div class="login-logo">
+        <span class="cursor">_</span>JEGA<span class="sec">SEC</span>
+      </div>
+      <div class="login-product">Fleet Shield</div>
+      <div class="login-eyebrow">— Create an account</div>
+
+      <div class="signup-price-box">
+        <div><span class="price">AUD $17.50</span> / vehicle / month</div>
+        <div>Billed monthly. <span class="placeholder">GST treatment: to be confirmed by the founder before this form goes live — see docs/founder-decisions-required.md.</span></div>
+        <div style="margin-top: 8px;">Implementation and integration work is quoted separately, based on your fleet and data sources.</div>
+        <div style="margin-top: 4px;">Organisational deployments can use invoicing and purchase orders instead of card billing — see the Fleet Shield page's "Enterprise &amp; government" option.</div>
+        <div style="margin-top: 8px;" class="placeholder">Cancellation terms: to be confirmed by the founder before this form goes live.</div>
+        <div style="margin-top: 8px;">This account starts on Fleet Shield's controlled-beta / approved-pilot basis — see your pilot agreement, if applicable, for any pilot-specific terms.</div>
+      </div>
+
+      <form id="signupForm">
+        <label>Full name
+          <input type="text" id="su-name" name="contactName" autocomplete="name" required maxlength="150" />
+        </label>
+        <label>Work email
+          <input type="email" id="su-email" name="contactEmail" autocomplete="email" required maxlength="254" />
+        </label>
+        <label>Organisation
+          <input type="text" id="su-org" name="orgName" autocomplete="organization" required maxlength="150" />
+        </label>
+        <label>Fleet size or vehicle estimate (optional)
+          <input type="text" id="su-fleet" name="fleetSizeEstimate" placeholder="e.g. 15 vehicles" maxlength="150" />
+        </label>
+        <label>Username
+          <input type="text" id="su-username" name="username" autocomplete="username" required maxlength="50" pattern="[a-zA-Z0-9_.-]{3,50}" />
+        </label>
+        <label>Password
+          <input type="password" id="su-password" name="password" autocomplete="new-password" required minlength="12" />
+        </label>
+        <label>Confirm password
+          <input type="password" id="su-confirm" name="confirmPassword" autocomplete="new-password" required minlength="12" />
+        </label>
+
+        <div class="signup-checkbox-row">
+          <input type="checkbox" id="su-authorised" name="authorisedToActForOrg" required />
+          <label for="su-authorised" style="margin: 0; text-transform: none; letter-spacing: normal; font-family: 'Inter', sans-serif; font-size: 12.5px; color: var(--muted);">
+            I confirm I am authorised to act on behalf of the organisation I'm registering, and that it has the authority to enter into these terms.
+          </label>
+        </div>
+
+        <div class="signup-checkbox-row">
+          <input type="checkbox" id="su-terms" name="agreedToTerms" required />
+          <label for="su-terms" style="margin: 0; text-transform: none; letter-spacing: normal; font-family: 'Inter', sans-serif; font-size: 12.5px; color: var(--muted);">
+            I agree to the Fleet Shield <a href="/terms.html" target="_blank" rel="noopener">Terms of Service</a>,
+            <a href="/privacy.html" target="_blank" rel="noopener">Privacy Notice</a> and
+            <a href="/billing-terms.html" target="_blank" rel="noopener">Subscription and Billing Terms</a>.
+          </label>
+        </div>
+
+        <button type="submit" id="signupBtn">Create account</button>
+        <p class="signup-error" id="signupError"></p>
+        <p class="signup-status" id="signupStatus"></p>
+      </form>
+
+      <p class="signup-footnote" style="margin-top: 18px;">
+        Already have an account? <a href="/login.html">Sign in</a>.
+      </p>
+    </div>
+    <div class="login-footnote">Gobi Jegarajasingham trading as JEGASEC Defence Technologies</div>
+  </div>
+
+  <script>
+    (function () {
+      var form = document.getElementById('signupForm');
+      var errorEl = document.getElementById('signupError');
+      var statusEl = document.getElementById('signupStatus');
+      var btn = document.getElementById('signupBtn');
+
+      function showError(message) {
+        errorEl.textContent = message;
+        errorEl.style.display = 'block';
+        statusEl.style.display = 'none';
+      }
+
+      form.addEventListener('submit', function (e) {
+        e.preventDefault();
+        errorEl.style.display = 'none';
+        statusEl.style.display = 'none';
+
+        var password = document.getElementById('su-password').value;
+        var confirmPassword = document.getElementById('su-confirm').value;
+        if (password !== confirmPassword) {
+          showError('Passwords do not match.');
+          return;
+        }
+        if (!document.getElementById('su-authorised').checked) {
+          showError('Please confirm you are authorised to act on behalf of your organisation.');
+          return;
+        }
+        if (!document.getElementById('su-terms').checked) {
+          showError('Please agree to the Terms of Service, Privacy Notice and Subscription and Billing Terms to continue.');
+          return;
+        }
+
+        var payload = {
+          contactName: document.getElementById('su-name').value,
+          contactEmail: document.getElementById('su-email').value,
+          orgName: document.getElementById('su-org').value,
+          fleetSizeEstimate: document.getElementById('su-fleet').value,
+          username: document.getElementById('su-username').value,
+          password: password,
+          confirmPassword: confirmPassword,
+          authorisedToActForOrg: true,
+          agreedToTerms: true,
+        };
+
+        btn.disabled = true;
+        fetch('/api/signup', {
+          method: 'POST',
+          headers: { 'content-type': 'application/json' },
+          body: JSON.stringify(payload),
+        })
+          .then(function (res) {
+            return res.json().then(function (data) { return { ok: res.ok, data: data }; });
+          })
+          .then(function (result) {
+            if (result.ok && result.data.ok) {
+              statusEl.textContent = 'Account created. Redirecting…';
+              statusEl.style.display = 'block';
+              if (result.data.checkoutUrl) {
+                window.location.href = result.data.checkoutUrl;
+              } else {
+                window.location.href = '/signup-success.html';
+              }
+            } else {
+              showError((result.data && result.data.error) || 'Something went wrong. Please try again.');
+              btn.disabled = false;
+            }
+          })
+          .catch(function () {
+            showError('Something went wrong. Please try again.');
+            btn.disabled = false;
+          });
+      });
+    })();
+  </script>
+</body>
+</html>

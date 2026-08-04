@@ -16,11 +16,20 @@
     Self-service signup is intentionally disabled while Fleet Shield's
     Terms of Service, Privacy Notice, and Subscription & Billing Terms
     are still drafts pending legal review (see /terms.html, /privacy.html,
-    /billing-terms.html). The original signup form, /api/signup, and the
-    Stripe billing integration are all still in place -- server.js gates
-    /api/signup behind the PUBLIC_SIGNUP_ENABLED environment variable.
-    To restore self-service signup, set PUBLIC_SIGNUP_ENABLED=true and
-    revert this page (git history has the previous version).
+    /billing-terms.html) and the pricing/refund/cancellation decisions in
+    docs/founder-decisions-required.md are still unresolved.
+
+    The complete future signup form already exists at future-signup/signup-form.html
+    and is served at GET /signup-form.html -- but only when
+    PUBLIC_SIGNUP_ENABLED=true (server.js checks the flag on every request and
+    404s otherwise; the file also isn't under public/, so static serving can't
+    expose it directly either way). /api/signup and the Stripe billing
+    integration are unchanged and fully working, just 403-gated behind the
+    same flag.
+
+    To restore self-service signup once the above is resolved: set
+    PUBLIC_SIGNUP_ENABLED=true and either link to /signup-form.html from here,
+    or replace this page with it entirely.
   -->
   <div class="login-wrap">
     <div class="login-card signup-card">

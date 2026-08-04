@@ -48,6 +48,7 @@ const {
 const { backfillVehicleHistory, backfillAlerts } = require('./lib/backfill');
 const orgs = require('./lib/organizations');
 const billing = require('./lib/billing');
+const { runCsvImport } = require('./lib/ingestion/import-service');
 
 const PORT = process.env.PORT || 3000;
 const TICK_MS = 2000; // simulation heartbeat
@@ -295,6 +296,26 @@ function persistPositions(orgId, rows) {
   });
   const sql = `INSERT INTO positions (${cols.join(',')}) VALUES ${placeholders.join(',')}`;
   db.query(sql, values).catch((err) => console.error('Failed to persist positions batch', err.message));
+}
+
+// Import-specific counterpart to persistPositions() above. The live
+// simulation's persistPositions is deliberately fire-and-forget (a tick
+// shouldn't block on a DB hiccup), but a CSV import needs the opposite
+// behaviour: the caller needs to know whether the write actually
+// succeeded, so an import can be honestly reported as accepted/rejected
+// and so a failed write doesn't get silently swallowed. Same column list
+// and single-INSERT-statement shape (atomic: all rows or none).
+async function persistImportedPositions(orgId, rows) {
+  if (rows.length === 0) return;
+  const cols = ['ts', 'vehicle_id', 'lat', 'lng', 'speed_kmh', 'heading_deg', 'status', 'odometer_km', 'fuel_used_total', 'co2_kg_total', 'moving_sec_total', 'idling_sec_total', 'trip_count', 'org_id'];
+  const values = [];
+  const placeholders = rows.map((r, i) => {
+    const base = i * cols.length;
+    values.push(r.ts, r.vehicleId, r.lat, r.lng, r.speedKmh, r.headingDeg, r.status, r.odometerKm, r.fuelUsedTotal, r.co2KgTotal, r.movingSec, r.idlingSec, r.tripCount, orgId);
+    return `(${cols.map((_, j) => `$${base + j + 1}`).join(',')})`;
+  });
+  const sql = `INSERT INTO positions (${cols.join(',')}) VALUES ${placeholders.join(',')}`;
+  await db.query(sql, values);
 }
 
 function tickOrg(orgId, orgState, shouldPersist) {
@@ -587,6 +608,76 @@ app.post('/api/webhooks/stripe', express.raw({ type: 'application/json' }), asyn
   }
 });
 
+// Telemetry CSV import — PROTOTYPE (see lib/ingestion/). Mounted before the
+// global express.json() (like the Stripe webhook route above) so it can
+// accept a CSV body via its own size-capped text parser instead of the
+// global JSON body-size limit. Because this runs earlier in the middleware
+// pipeline than the app.use(requireAuth) gate further down this file, the
+// full auth chain (session, login, CSRF, active-subscription) is applied
+// per-route here instead.
+//
+// Not a validated vendor integration. Restricted to authenticated admins
+// of an org with an active subscription, importing only into vehicles
+// their own org already owns (see lib/ingestion/csv-adapter.js). See
+// docs/pilot-readiness/telemetry-data-requirements.md for the documented
+// CSV schema, and jegasec-site/src/lib/integrations.ts for the public
+// (deliberately unvalidated) integration-framework status.
+app.post(
+  '/api/telemetry/import/csv',
+  express.text({ type: 'text/csv', limit: '2mb' }),
+  sessionMiddleware,
+  requireAuth,
+  requireCsrf,
+  requireActiveSubscription,
+  async (req, res) => {
+    if (typeof req.body !== 'string' || req.body.length === 0) {
+      return res.status(400).json({ error: 'Request body must be raw CSV text with Content-Type: text/csv.' });
+    }
+
+    let vehicles;
+    try {
+      vehicles = await loadVehiclesForOrg(req.orgId);
+    } catch (err) {
+      console.error('CSV import: failed to load organisation vehicles', err.message);
+      return res.status(500).json({ error: 'Could not load organisation vehicles.' });
+    }
+
+    let result;
+    try {
+      result = await runCsvImport({
+        csvText: req.body,
+        orgId: req.orgId,
+        vehicles,
+        getLatestPosition: restoreLatestPosition,
+        writePositions: persistImportedPositions,
+        sourceSystem: 'csv-upload',
+      });
+    } catch (err) {
+      console.error('CSV import failed unexpectedly', err.message);
+      await audit('telemetry_csv_import', {
+        orgId: req.orgId,
+        username: req.session.username,
+        ip: req.ip,
+        success: false,
+        detail: 'Import threw an unexpected error; no rows were written.',
+      });
+      return res.status(500).json({ error: 'Import failed unexpectedly. No rows were written.' });
+    }
+
+    await audit('telemetry_csv_import', {
+      orgId: req.orgId,
+      username: req.session.username,
+      ip: req.ip,
+      success: result.accepted,
+      detail: result.accepted
+        ? `${result.summary.validRows}/${result.summary.totalRows} row(s) imported across ${result.summary.vehiclesImported} vehicle(s); ${result.invalidRows.length} row(s) rejected.`
+        : `Rejected: ${result.fileErrors.join('; ') || 'no valid rows.'}`,
+    });
+
+    res.status(result.accepted ? 200 : 422).json(result);
+  }
+);
+
 app.use(express.json());
 app.use(sessionMiddleware);
 
@@ -623,16 +714,22 @@ const EMAIL_RE = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
 const TERMS_VERSION = '2026-08-03-draft';
 
 function validateSignupInput(body) {
-  const { orgName, contactName, contactEmail, username, password, confirmPassword, agreedToTerms } = body || {};
+  const { orgName, contactName, contactEmail, username, password, confirmPassword, agreedToTerms, authorisedToActForOrg } = body || {};
   // Required, unticked-by-default checkbox on the signup form: "I agree to
   // the Fleet Shield Terms of Service, Privacy Notice and Subscription and
-  // Billing Terms." This is currently dormant server-side logic — public
-  // signup is disabled (see PUBLIC_SIGNUP_ENABLED above) and signup.html no
-  // longer renders a signup form, so this can't be reached from the public
-  // site today. It's implemented now so re-enabling signup doesn't also
-  // require remembering to add consent enforcement at the same time.
+  // Billing Terms." Enforced here at the API level regardless of whether
+  // the request came from future-signup/signup-form.html (the only UI that
+  // currently submits here) or a direct API call — this can't be bypassed
+  // by skipping the front end.
   if (agreedToTerms !== true) {
     return 'You must agree to the Terms of Service, Privacy Notice and Subscription and Billing Terms to continue.';
+  }
+  // Separate, equally required acknowledgement that the signer is actually
+  // authorised to act for the organisation being registered (see terms.html
+  // section 2, "Eligibility and authority") — distinct from agreeing to the
+  // terms themselves.
+  if (authorisedToActForOrg !== true) {
+    return 'You must confirm you are authorised to act on behalf of your organisation.';
   }
   if (typeof orgName !== 'string' || !orgName.trim() || orgName.length > NAME_MAX_LEN) {
     return 'Organisation name is required.';
@@ -664,6 +761,21 @@ function validateSignupInput(body) {
   return null;
 }
 
+// The complete future signup form (future-signup/signup-form.html) is not
+// reachable through Express's static middleware — that directory is never
+// registered as a static root, only public/ and protected/ are (see
+// app.use(express.static(...)) above). This route is the ONLY path to it,
+// and it re-checks PUBLIC_SIGNUP_ENABLED on every request: while disabled,
+// it 404s exactly like a route that doesn't exist, rather than exposing a
+// form that just fails on submit. No session/DB access happens on this
+// path either way.
+app.get('/signup-form.html', (req, res) => {
+  if (!PUBLIC_SIGNUP_ENABLED) {
+    return res.status(404).send('Not found.');
+  }
+  res.sendFile(path.join(__dirname, 'future-signup', 'signup-form.html'));
+});
+
 app.post('/api/signup', async (req, res) => {
   if (!PUBLIC_SIGNUP_ENABLED) {
     return res.status(403).json({
@@ -674,7 +786,7 @@ app.post('/api/signup', async (req, res) => {
   const validationError = validateSignupInput(req.body);
   if (validationError) return res.status(400).json({ error: validationError });
 
-  const { orgName, contactName, contactEmail, username, password } = req.body;
+  const { orgName, contactName, contactEmail, username, password, fleetSizeEstimate } = req.body;
 
   const existing = await orgs.findOrgByUsername(db, username);
   if (existing) {
@@ -690,7 +802,14 @@ app.post('/api/signup', async (req, res) => {
       adminUsername: username,
       adminPasswordHash: passwordHash,
     });
-    await audit('org_created', { orgId: org.id, username, detail: orgName });
+    // fleetSizeEstimate is optional, informational-only (not part of the
+    // orgs table schema) — folded into the existing free-text audit detail
+    // rather than adding a migration for a field that's just context for
+    // the founder reviewing new signups.
+    const signupDetail = fleetSizeEstimate && String(fleetSizeEstimate).trim()
+      ? `${orgName} — estimated fleet size: ${String(fleetSizeEstimate).trim().slice(0, 150)}`
+      : orgName;
+    await audit('org_created', { orgId: org.id, username, detail: signupDetail });
     // Records the informed-agreement checkbox event: which account, which
     // version of the terms, and when. Deliberately stored via the existing
     // audit log rather than a new table, since it's exactly the
@@ -1239,10 +1358,28 @@ async function boot() {
     console.log(`Fleet Shield running at http://localhost:${PORT}`);
     console.log(`Restored ${allOrgs.length} organization(s), ${totalVehicles} vehicle(s) total from Postgres.`);
     console.log(`Billing: ${billing.billingEnabled ? 'enabled (Stripe)' : 'DISABLED (STRIPE_* env vars not set)'}`);
+    // Loud, deliberate startup signal — public signup is controlled-beta-gated
+    // by design (see PUBLIC_SIGNUP_ENABLED above), so if this deployment has
+    // it on, that should be an intentional, visible fact in the boot log, not
+    // something discovered later. Never logs secrets — PUBLIC_SIGNUP_ENABLED
+    // is a boolean flag, not a credential.
+    if (PUBLIC_SIGNUP_ENABLED) {
+      console.warn('WARNING: PUBLIC_SIGNUP_ENABLED=true — public self-service signup and checkout are LIVE on this deployment. Confirm this is intentional (Terms of Service, Privacy Notice and Subscription & Billing Terms should be founder/legally approved first).');
+    } else {
+      console.log('Public signup: disabled (controlled beta). Set PUBLIC_SIGNUP_ENABLED=true to enable.');
+    }
   });
 }
 
-boot().catch((err) => {
-  console.error('Failed to boot server:', err);
-  process.exit(1);
-});
+// Guarded so `require('./server')` from the test suite (tests/signup-flow.test.js)
+// gets a fully-routed `app` without also connecting to Postgres and binding
+// a port — boot() only runs when this file is executed directly, exactly as
+// before (`node server.js` / `npm start`).
+if (require.main === module) {
+  boot().catch((err) => {
+    console.error('Failed to boot server:', err);
+    process.exit(1);
+  });
+}
+
+module.exports = { app, validateSignupInput, TERMS_VERSION, PASSWORD_MIN_LENGTH, PUBLIC_SIGNUP_ENABLED };

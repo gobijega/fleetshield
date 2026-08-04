@@ -6,6 +6,7 @@
   "type": "commonjs",
   "scripts": {
     "start": "node server.js",
+    "test": "node --test tests/*.test.js",
     "migrate": "node scripts/migrate.js",
     "hash-password": "node scripts/hash-password.js",
     "backfill": "node scripts/backfill.js",

@@ -177,12 +177,43 @@ test, no IRAP/government security certification.
 
 ## Billing
 
-Self-service signup at `/signup.html` — an organization creates an account, then Stripe's
-hosted Checkout collects payment (Fleet Shield never sees or stores card details). The
-subscription is AUD $17.50 per vehicle per month, billed via a quantity-based Stripe
+**Public self-service signup is currently disabled (controlled beta).** `/signup.html`
+is a controlled-beta landing page (Request a demonstration / Apply for pilot access),
+not a signup form. This is controlled by the `PUBLIC_SIGNUP_ENABLED` environment
+variable, which defaults to disabled — see "Controlled-beta gate" below.
+
+The complete self-service signup implementation still exists and is fully functional,
+it's just not publicly reachable while the flag is off:
+
+- `GET /signup-form.html` — the actual signup form (`future-signup/signup-form.html`,
+  outside `public/` so static file serving can never expose it directly). The route
+  handler checks `PUBLIC_SIGNUP_ENABLED` on every request and returns `404` while
+  disabled, `200` with the form when enabled.
+- `POST /api/signup` — creates the organisation + admin account, then Stripe's hosted
+  Checkout collects payment (Fleet Shield never sees or stores card details). Always
+  `403`s while `PUBLIC_SIGNUP_ENABLED` is off, regardless of whether the form route was
+  somehow reached.
+
+The subscription is AUD $17.50 per vehicle per month, billed via a quantity-based Stripe
 Price: the billed quantity is kept in sync automatically every time a vehicle is added
 or removed via the "Fleet & Billing" tab, so the bill always matches the live fleet size
-(Stripe prorates the difference automatically — see `lib/billing.js`).
+(Stripe prorates the difference automatically — see `lib/billing.js`). GST treatment,
+refund policy and cancellation terms are unresolved founder decisions — see
+`docs/founder-decisions-required.md` — and are shown as explicit placeholders on the
+signup form and in the Subscription and Billing Terms draft rather than invented.
+
+### Controlled-beta gate
+
+`PUBLIC_SIGNUP_ENABLED` is read with strict equality (`=== 'true'`) — only the literal
+string `true` enables it; unset, blank, `false`, `0`, or any other value keeps signup
+disabled. The server logs a loud `WARNING:` line at startup if it's ever on, so this is
+never a silent state. Existing customer login is completely unaffected either way.
+
+Before setting `PUBLIC_SIGNUP_ENABLED=true` on a real deployment: resolve the pricing/
+refund/cancellation decisions in `docs/founder-decisions-required.md`, get the four
+legal drafts (`/terms.html`, `/privacy.html`, `/billing-terms.html`,
+`/acceptable-use.html`) reviewed, and update the signup form's placeholder text
+accordingly.
 
 Requires four environment variables (`STRIPE_SECRET_KEY`, `STRIPE_WEBHOOK_SECRET`,
 `STRIPE_PRICE_ID`, `APP_BASE_URL` — see `.env.example`). Leave them unset to disable
@@ -223,8 +254,9 @@ instance (Timescale Cloud) plus a persistent, WebSocket-capable host (Render).
 | POST | `/api/vehicles/checkout` | Start a $17.50 AUD one-time Stripe Checkout for adding a vehicle: `{ label, driver?, fuelType }`, returns `{ checkoutUrl }`. The vehicle is created by the Stripe webhook once payment is confirmed — not by this call. |
 | POST | `/api/vehicles` | Add a vehicle directly, no payment prompt: `{ label, driver?, fuelType }`. Only usable when billing is disabled on this deployment (returns 400 otherwise) — see `/api/vehicles/checkout`. |
 | DELETE | `/api/vehicles/:id` | Remove a vehicle — syncs Stripe subscription quantity down (prorated credit) |
-| POST | `/api/signup` (public) | Create an organization + admin account: `{ orgName, contactName?, contactEmail, username, password, confirmPassword }`, returns a Stripe Checkout URL |
+| POST | `/api/signup` (public, `403` unless `PUBLIC_SIGNUP_ENABLED=true`) | Create an organization + admin account: `{ orgName, contactName?, contactEmail, username, password, confirmPassword, fleetSizeEstimate?, agreedToTerms, authorisedToActForOrg }` — `agreedToTerms` and `authorisedToActForOrg` must both be exactly `true`. Returns a Stripe Checkout URL |
 | POST | `/api/webhooks/stripe` (public) | Stripe webhook receiver — signature-verified, not for direct use |
+| POST | `/api/telemetry/import/csv` | **Prototype.** Secure CSV telemetry import — see "Telemetry ingestion" below. Body: raw CSV text, `Content-Type: text/csv`, max 2MB. Requires an authenticated admin session with an active subscription, plus `X-CSRF-Token`. |
 
 State-changing requests (`POST`/`DELETE`) require an `X-CSRF-Token` header matching the
 `fs.csrf` cookie issued at login — see "Security" below.
@@ -232,13 +264,97 @@ State-changing requests (`POST`/`DELETE`) require an `X-CSRF-Token` header match
 WebSocket stream at `ws://localhost:3000/ws` emits `init`, `positions`, and `alert`
 messages.
 
+## Telemetry ingestion
+
+The live dashboard is driven by an in-process simulation (`tickOrg()` in `server.js`),
+not real vehicle hardware — see "What it demonstrates" above. `lib/ingestion/` is the
+first step toward accepting telemetry from a real external source instead: a
+vendor-neutral adapter framework plus one concrete adapter.
+
+**Status of each planned ingestion method** (also tracked in
+`jegasec-site/src/lib/integrations.ts`, which drives the public-facing wording on
+`/fleet-shield` — no method here is marked "implemented" or shown to customers as a
+validated integration):
+
+| Method | Status | Notes |
+|---|---|---|
+| Secure CSV import | **Prototype** | `lib/ingestion/csv-adapter.js` + `cumulative.js` + `import-service.js`; wired up at `POST /api/telemetry/import/csv`. Exercised only against the fictional fixture in `tests/fixtures/telemetry-sample.csv`. |
+| Approved manual upload | Planned | No separate manual-upload UI exists; would reuse the CSV prototype's validation once a real upload surface is built. |
+| REST API connector | Planned | Not started. |
+| Scheduled file import | Planned | Not started — would need a scheduler plus the CSV adapter above. |
+| Custom connector | Planned | Not started; scoped per engagement once a real integration is contracted. |
+
+**What the CSV prototype actually does**, end to end: an authenticated admin of an org
+with an active subscription POSTs raw CSV text (documented schema below) to
+`/api/telemetry/import/csv`. `csv-adapter.js` parses it with a hand-rolled RFC4180-style
+tokenizer (no third-party CSV library — kept in-house so every parsing/security
+guarantee is auditable in one file) and validates every row: required columns present,
+vehicle ID belongs to the importing org, timestamp is a plausible ISO 8601 value,
+coordinates in range, no duplicate vehicle+timestamp rows within the file, free-text
+fields defended against spreadsheet "formula injection" (a leading `=`/`+`/`-`/`@` gets
+a neutralising prefix) and stripped of embedded CR/LF. Valid rows are grouped per
+vehicle, and `cumulative.js` derives the same running totals the live simulation
+computes (`fuel_used_total`, `co2_kg_total`, `moving_sec_total`, `idling_sec_total`,
+`trip_count`) using the vehicle's real fuel-consumption/emission-factor data, continuing
+from that vehicle's current latest position rather than resetting history. The resulting
+rows are written to `positions` via a single atomic `INSERT` (all rows or none), and the
+import is recorded in the audit log (`telemetry_csv_import`).
+
+**Documented CSV schema:**
+
+```
+vehicle_id,timestamp,lat,lng,speed_kmh,ignition,odometer_km,driver_id,source_ref
+VIC-01,2026-06-01T08:00:00Z,-37.8136,144.9631,0,on,62000,J. Ahmed,ref-1
+```
+
+`vehicle_id`, `timestamp`, `lat`, `lng` are required; the rest are optional. Limits: 2MB
+file size, 5000 data rows, 200 distinct vehicles per import, 500 characters per field.
+Full validation rules are in `lib/ingestion/csv-adapter.js`.
+
+**Known limitations — documented rather than silently patched over**, per the
+"produce an implementation plan rather than an unsafe patch" principle:
+
+1. **No cross-import duplicate detection against already-stored history.**
+   `csv-adapter.js` only catches duplicate vehicle+timestamp rows *within the same
+   uploaded file*; it does not check the `positions` table for readings that were
+   already imported previously. Repeated imports covering overlapping time ranges will
+   currently insert duplicate rows. **Implementation plan:** before writing, query
+   `SELECT ts FROM positions WHERE vehicle_id = $1 AND ts = ANY($2)` for each vehicle's
+   batch of timestamps and drop any that already exist, inside the same transaction as
+   the insert.
+2. **Interaction with the live simulation loop is not yet arbitrated.** `tickOrg()`
+   restores a vehicle's cumulative totals from its single latest `positions` row on
+   server restart (`restoreLatestPosition`/`initVehiclesForOrg`). An import that writes
+   a row with a timestamp later than the live simulation's most recent tick — or that
+   runs concurrently with it — could produce an inconsistent "latest" row. This
+   prototype is safe for backfilling **historical** data (timestamps before a vehicle's
+   live simulation history began) or for orgs not currently running the live simulation
+   for the imported vehicles; it is not yet safe for concurrent, ongoing import against
+   an actively-simulated fleet. **Implementation plan:** either (a) reject import rows
+   with a timestamp newer than the vehicle's current latest row, or (b) replace the
+   in-memory simulation's per-tick DB write with a shared "latest state" table read on
+   every write rather than only on boot, so both paths converge on the same source of
+   truth. Neither has been built; this needs a founder/engineering decision before this
+   prototype is used against a live fleet, not just a backfill.
+3. **No file-upload UI.** The route only accepts CSV as a raw request body — there is no
+   admin dashboard page to select and upload a file yet. Wiring one up is
+   straightforward (a `<input type="file">` reading `.text()` and `fetch()`-ing it to
+   the existing route) but has not been built, since the priority for this pass was the
+   validation/security pathway, not the admin UX.
+
+None of this is presented publicly as a working integration — see
+`jegasec-site/src/lib/integrations.ts`'s `INTEGRATIONS` array, which stays empty, and
+the "internal engineering prototype" label shown next to "Secure file import" on
+`/fleet-shield`.
+
 ## Extending toward production
 
 - Swap the simulator in `tick()` for a real ingestion layer — device webhook, MQTT
-  broker, or OEM API — feeding the same vehicle state shape. Because the pipeline is
-  hardware-agnostic by design, this should support multiple concurrent hardware
-  vendors/protocols per fleet (a council rarely has one uniform hardware base across
-  every depot), not just one.
+  broker, or OEM API — feeding the same vehicle state shape, or build out the CSV
+  prototype above into a production ingestion path (see its documented limitations).
+  Because the pipeline is hardware-agnostic by design, this should support multiple
+  concurrent hardware vendors/protocols per fleet (a council rarely has one uniform
+  hardware base across every depot), not just one.
 - Multi-tenant fleet scoping and self-service billing are now in place (see "Billing"
   above) — the remaining gap is per-org role-based access (multiple staff per customer
   with different permission levels), not tenant isolation itself.
