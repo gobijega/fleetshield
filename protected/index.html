@@ -39,6 +39,7 @@
   <button class="tab-btn" data-tab="fleet">Fleet &amp; Billing</button>
   <button class="tab-btn" data-tab="geofences">Geofencing</button>
   <button class="tab-btn" data-tab="compliance">Compliance</button>
+  <button class="tab-btn" data-tab="import">Data Import</button>
 </nav>
 
 <main>
@@ -154,13 +155,53 @@
 
   <section id="tab-compliance" class="tab-panel">
     <h2>Safety &amp; Compliance</h2>
-    <p class="hint">Driver safety scores (based on alert history), vehicle registration status, and service due dates — supports GMW's fleet safety &amp; compliance requirements.</p>
+    <p class="hint">Driver safety scores (based on alert history), vehicle registration status, and service due dates for the demonstration fleet.</p>
     <div class="alert-table-wrap">
       <table class="alert-table" id="complianceTable">
         <thead>
           <tr><th>Vehicle</th><th>Driver</th><th>Safety Score</th><th>Rego Expiry</th><th>Rego Status</th><th>Service Due</th><th>Service Status</th></tr>
         </thead>
         <tbody id="complianceRows"></tbody>
+      </table>
+    </div>
+  </section>
+
+  <section id="tab-import" class="tab-panel">
+    <h2>Data Import</h2>
+    <p class="hint">
+      <strong>Secure CSV telemetry import &mdash; internal validation.</strong>
+      An internal, pilot-stage capability for importing authorised representative
+      telemetry via CSV. This is not a published telematics-vendor integration &mdash;
+      see the Product Validation Roadmap on jegasec.com for current status.
+      Imports are scoped to your organisation only and are recorded in the
+      import history below.
+    </p>
+
+    <form class="geofence-form" id="csvImportForm">
+      <h3>Import CSV</h3>
+      <label>CSV file
+        <input type="file" id="csvFile" accept=".csv,text/csv" />
+      </label>
+      <p class="hint">Or paste CSV text directly:</p>
+      <label>CSV text
+        <textarea id="csvText" rows="6" placeholder="vehicle_id,timestamp,lat,lng,speed_kmh,ignition,odometer_km&#10;VIC-01,2026-06-01T08:00:00Z,-37.8,144.9,42,true,10452"></textarea>
+      </label>
+      <button type="submit">Import CSV</button>
+      <p class="hint" id="csvImportResult"></p>
+    </form>
+
+    <h3 style="margin-top: 24px;">Import history</h3>
+    <p class="hint">Every CSV import attempt for your organisation, most recent first. Metrics are read from the audit log &mdash; see docs/procurement-evidence/security-control-evidence-index.md for how these figures are computed.</p>
+    <div class="alert-table-wrap">
+      <table class="alert-table" id="importHistoryTable">
+        <thead>
+          <tr>
+            <th>Time</th><th>Status</th><th>Submitted</th><th>Accepted</th><th>Rejected</th>
+            <th>Duplicates</th><th>Unknown vehicles</th><th>Invalid coords</th>
+            <th>Invalid timestamps</th><th>Completeness</th><th>Duration</th><th>By</th>
+          </tr>
+        </thead>
+        <tbody id="importHistoryRows"></tbody>
       </table>
     </div>
   </section>

@@ -10,7 +10,10 @@
     "migrate": "node scripts/migrate.js",
     "hash-password": "node scripts/hash-password.js",
     "backfill": "node scripts/backfill.js",
-    "setup-mfa": "node scripts/setup-mfa.js"
+    "setup-mfa": "node scripts/setup-mfa.js",
+    "lint": "eslint .",
+    "format": "prettier --write .",
+    "format:check": "prettier --check ."
   },
   "dependencies": {
     "bcryptjs": "^3.0.3",
@@ -26,5 +29,10 @@
     "qrcode-terminal": "^0.12.0",
     "stripe": "^17.4.0",
     "ws": "^8.18.0"
+  },
+  "devDependencies": {
+    "@eslint/js": "^9.39.5",
+    "eslint": "^9.39.5",
+    "prettier": "^3.9.6"
   }
 }

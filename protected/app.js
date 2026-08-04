@@ -62,8 +62,111 @@ document.querySelectorAll('.tab-btn').forEach((btn) => {
     if (btn.dataset.tab === 'reports') loadReports();
     if (btn.dataset.tab === 'compliance') loadCompliance();
     if (btn.dataset.tab === 'fleet') loadFleetTab();
+    if (btn.dataset.tab === 'import') loadImportHistory();
     if (btn.dataset.tab === 'map') setTimeout(() => map.invalidateSize(), 50);
   });
+});
+
+// ---------------------------------------------------------------------------
+// Data Import (secure CSV telemetry import -- internal validation)
+// ---------------------------------------------------------------------------
+// Parses the compact "[metrics: key=value key=value ...]" suffix that
+// server.js appends to each telemetry_csv_import audit-log entry (see
+// docs/procurement-evidence/security-control-evidence-index.md). Values are
+// numeric or "?" when unavailable; unknown/missing keys render as "-".
+function parseImportMetrics(detail) {
+  const match = /\[metrics:\s*([^\]]+)\]/.exec(detail || '');
+  const metrics = {};
+  if (!match) return metrics;
+  for (const pair of match[1].trim().split(/\s+/)) {
+    const [key, value] = pair.split('=');
+    if (key) metrics[key] = value;
+  }
+  return metrics;
+}
+
+async function loadImportHistory() {
+  const tbody = document.getElementById('importHistoryRows');
+  try {
+    const res = await authedFetch('/api/audit?limit=200');
+    if (!res.ok) throw new Error('failed to load audit log');
+    const rows = await res.json();
+    const imports = rows.filter((r) => r.event_type === 'telemetry_csv_import');
+    tbody.innerHTML = '';
+    if (imports.length === 0) {
+      tbody.innerHTML = '<tr><td colspan="12" class="hint">No CSV imports have been run for this organisation yet.</td></tr>';
+      return;
+    }
+    for (const row of imports) {
+      const m = parseImportMetrics(row.detail);
+      const tr = document.createElement('tr');
+      const completeness = m.completeness !== undefined ? `${m.completeness}%` : '-';
+      const duration = m.durationMs !== undefined && m.durationMs !== '?' ? `${m.durationMs} ms` : '-';
+      tr.innerHTML = `
+        <td>${new Date(row.ts).toLocaleString()}</td>
+        <td>${row.success ? 'Accepted' : 'Rejected'}</td>
+        <td>${m.submitted ?? '-'}</td>
+        <td>${m.accepted ?? '-'}</td>
+        <td>${m.rejected ?? '-'}</td>
+        <td>${m.duplicates ?? '-'}</td>
+        <td>${m.unknownVehicles ?? '-'}</td>
+        <td>${m.invalidCoords ?? '-'}</td>
+        <td>${m.invalidTimestamps ?? '-'}</td>
+        <td>${completeness}</td>
+        <td>${duration}</td>
+        <td>${row.username || '-'}</td>
+      `;
+      tbody.appendChild(tr);
+    }
+  } catch (err) {
+    tbody.innerHTML = '<tr><td colspan="12" class="hint error">Could not load import history.</td></tr>';
+  }
+}
+
+document.getElementById('csvImportForm').addEventListener('submit', async (e) => {
+  e.preventDefault();
+  const resultEl = document.getElementById('csvImportResult');
+  const fileInput = document.getElementById('csvFile');
+  const textInput = document.getElementById('csvText');
+  resultEl.textContent = 'Importing...';
+  resultEl.classList.remove('error');
+
+  try {
+    let csvText;
+    if (fileInput.files && fileInput.files[0]) {
+      csvText = await fileInput.files[0].text();
+    } else {
+      csvText = textInput.value;
+    }
+    if (!csvText || !csvText.trim()) {
+      resultEl.textContent = 'Choose a CSV file or paste CSV text before importing.';
+      resultEl.classList.add('error');
+      return;
+    }
+
+    const res = await authedFetch('/api/telemetry/import/csv', {
+      method: 'POST',
+      headers: { 'Content-Type': 'text/csv' },
+      body: csvText,
+    });
+    const data = await res.json();
+
+    if (res.ok && data.accepted) {
+      const s = data.summary || {};
+      resultEl.textContent = `Imported ${s.validRows ?? '?'}/${s.totalRows ?? '?'} row(s) across ${s.vehiclesImported ?? '?'} vehicle(s). ${data.invalidRows ? data.invalidRows.length : 0} row(s) rejected.`;
+      resultEl.classList.remove('error');
+      fileInput.value = '';
+      textInput.value = '';
+    } else {
+      const reason = (data.fileErrors && data.fileErrors.join('; ')) || data.error || 'Import was rejected.';
+      resultEl.textContent = reason;
+      resultEl.classList.add('error');
+    }
+    loadImportHistory();
+  } catch (err) {
+    resultEl.textContent = 'Import failed unexpectedly. No rows were written.';
+    resultEl.classList.add('error');
+  }
 });
 
 // ---------------------------------------------------------------------------

@@ -97,8 +97,8 @@ If you bought a domain through Cloudflare and want it pointing at this app inste
 
 - **Cold starts**: Render's free plan spins a service down after 15 minutes of no
   traffic; the next request takes ~30–50s to wake it back up. Fine for casual use, but
-  jarring if you're live-demoing it to GMW. Upgrade to the **Starter** plan (~US$7/mo)
-  before any real walkthrough so it's instant and always-on.
+  jarring if you're live-demoing it to a prospective partner. Upgrade to the
+  **Starter** plan (~US$7/mo) before any real walkthrough so it's instant and always-on.
 - **Free-tier DB storage**: Timescale's free tier has a storage cap; once hit, the
   service goes read-only. `render.yaml` sets `DB_WRITE_EVERY_N_TICKS=3` to throttle
   position-write volume by default — raise it further, or upgrade the Timescale plan,

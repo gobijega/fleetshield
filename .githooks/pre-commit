@@ -1,0 +1,18 @@
+#!/bin/sh
+# Pre-commit checks for fleetshield-repo.
+#
+# Not installed automatically -- enable once per clone with:
+#   git config core.hooksPath .githooks
+#
+# format:check is deliberately not run here -- see the comment in
+# .github/workflows/ci.yml explaining why the existing codebase hasn't
+# had a mass Prettier pass applied yet.
+
+set -e
+
+echo "Running pre-commit checks (eslint, tests)..."
+
+npm run lint
+npm test
+
+echo "Pre-commit checks passed."
