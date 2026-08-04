@@ -57,19 +57,21 @@ describe('GET /signup-form.html — gated by PUBLIC_SIGNUP_ENABLED', () => {
     }
   });
 
-  test('an explicit non-"true" value (e.g. "0") also keeps it disabled', async () => {
-    process.env.PUBLIC_SIGNUP_ENABLED = '0';
-    delete require.cache[require.resolve(SERVER_PATH)];
-    const { app } = require(SERVER_PATH);
-    const server = await listen(app);
-    try {
-      const res = await fetch(`${baseUrl(server)}/signup-form.html`);
-      assert.equal(res.status, 404);
-    } finally {
-      server.close();
-      delete process.env.PUBLIC_SIGNUP_ENABLED;
-    }
-  });
+  for (const nonEnablingValue of ['0', 'false', 'yes', 'enabled', '']) {
+    test(`an explicit non-"true" value (${JSON.stringify(nonEnablingValue)}) also keeps it disabled`, async () => {
+      process.env.PUBLIC_SIGNUP_ENABLED = nonEnablingValue;
+      delete require.cache[require.resolve(SERVER_PATH)];
+      const { app } = require(SERVER_PATH);
+      const server = await listen(app);
+      try {
+        const res = await fetch(`${baseUrl(server)}/signup-form.html`);
+        assert.equal(res.status, 404);
+      } finally {
+        server.close();
+        delete process.env.PUBLIC_SIGNUP_ENABLED;
+      }
+    });
+  }
 
   test('route serves the real form (200) when explicitly enabled', async () => {
     const { app } = loadServerWithFlag(true);

@@ -30,6 +30,9 @@ const PROHIBITED_PATTERNS = [
   /\btrusted by\b/i,
   /\bproduction[\s-]ready\b/i,
   /\bpty ltd\b/i,
+  /\bcancel anytime\b/i,
+  /active council fleet\b(?!\s+demonstrating)/i, // "Simulated ... council fleet demonstrating..." is fine; a bare claim is not
+  /jegasec defence technologies pty ltd/i,
 ];
 
 function walkFiles(dir, extensions) {
