@@ -1,2 +1,6 @@
+# Fleet Shield is a gated customer/pilot application, not a public marketing
+# site -- product marketing and discovery content lives at
+# https://jegasec.com/fleet-shield. Search engines are asked not to index
+# this app shell.
 User-agent: *
-Disallow: /api/
+Disallow: /
