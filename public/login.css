@@ -205,3 +205,13 @@ body {
   .otp-row { gap: 6px; }
   .otp-box { font-size: 18px; }
 }
+
+/* ---------- Brand mark (octagon) ---------- */
+.login-logo .brand-mark {
+  display: inline-block;
+  vertical-align: middle;
+  width: 32px;
+  height: 32px;
+  margin-right: 9px;
+  background: url('/brand/logo-mark.svg') center / contain no-repeat;
+}

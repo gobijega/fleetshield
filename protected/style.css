@@ -360,3 +360,13 @@ main { padding: 20px 24px 40px; max-width: 1400px; margin: 0 auto; }
   /* Inputs under 16px trigger an unwanted auto-zoom on focus in iOS Safari. */
   .geofence-form input, .geofence-form select { font-size: 16px; }
 }
+
+/* ---------- Brand mark (octagon) ---------- */
+.brand-logo .brand-mark {
+  display: inline-block;
+  vertical-align: middle;
+  width: 26px;
+  height: 26px;
+  margin-right: 9px;
+  background: url('/brand/logo-mark.svg') center / contain no-repeat;
+}
