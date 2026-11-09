@@ -29,10 +29,14 @@ const PROHIBITED_PATTERNS = [
   /\bgovernment customers\b/i,
   /\btrusted by\b/i,
   /\bproduction[\s-]ready\b/i,
-  /\bpty ltd\b/i,
   /\bcancel anytime\b/i,
   /active council fleet\b(?!\s+demonstrating)/i, // "Simulated ... council fleet demonstrating..." is fine; a bare claim is not
+  // Fleet Shield is provided by JEGASEC PTY LTD (ACN 701 612 277). Guard
+  // against the superseded sole-trader identity creeping back in, and
+  // against inventing a company name that doesn't exist.
   /jegasec defence technologies pty ltd/i,
+  /trading as jegasec defence technologies/i,
+  /not currently an incorporated company/i,
 ];
 
 function walkFiles(dir, extensions) {
@@ -48,6 +52,25 @@ function walkFiles(dir, extensions) {
   }
   return results;
 }
+
+describe('Legal documents name the incorporated entity', () => {
+  test('every legal page and page footnote identifies JEGASEC PTY LTD with its ABN', () => {
+    const pages = ['terms.html', 'privacy.html', 'billing-terms.html', 'acceptable-use.html', 'login.html', 'signup.html', 'signup-success.html'];
+    for (const page of pages) {
+      const content = fs.readFileSync(path.join(__dirname, '..', 'public', page), 'utf8');
+      assert.match(content, /JEGASEC PTY LTD/, `${page} should name JEGASEC PTY LTD`);
+      assert.match(content, /ABN 54 701 612 277/, `${page} should carry the company ABN`);
+    }
+  });
+
+  test('the old sole-trader ABN only appears in the Terms transition notice', () => {
+    const files = DIRS_TO_CHECK.flatMap((d) => walkFiles(d, ['.html', '.js']));
+    const hits = files
+      .filter((f) => fs.readFileSync(f, 'utf8').includes('93 582 150 337'))
+      .map((f) => path.basename(f));
+    assert.deepEqual(hits, ['terms.html']);
+  });
+});
 
 describe('Prohibited public claims must not appear in served Fleet Shield files', () => {
   test('no prohibited phrase appears in public/ or protected/ HTML/JS', () => {

@@ -729,7 +729,9 @@ const EMAIL_RE = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
 // Billing Terms change in a way that requires re-agreement. Recorded against
 // every signup so we always know which version of the terms an org agreed
 // to (see the 'org_terms_agreed' audit event below).
-const TERMS_VERSION = '2026-08-03-draft';
+// Bumped when Fleet Shield moved from the sole trader to JEGASEC PTY LTD, so
+// consent records show which contracting entity a customer agreed with.
+const TERMS_VERSION = '2026-11-10-draft';
 
 function validateSignupInput(body) {
   const { orgName, contactName, contactEmail, username, password, confirmPassword, agreedToTerms, authorisedToActForOrg } = body || {};
