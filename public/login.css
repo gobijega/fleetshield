@@ -1,5 +1,5 @@
 :root {
-  --bg: #06080c;
+  --bg: #000000;
   --panel: #0e131c;
   --border: #1f2937;
   --border-bright: #2a3648;
@@ -21,11 +21,6 @@ body {
   font-family: 'Inter', -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Helvetica, Arial, sans-serif;
   background: var(--bg);
   color: var(--text);
-  background-image:
-    linear-gradient(rgba(0, 255, 65, 0.035) 1px, transparent 1px),
-    linear-gradient(90deg, rgba(0, 255, 65, 0.035) 1px, transparent 1px);
-  background-size: 48px 48px;
-  background-position: center top;
 }
 
 .login-wrap {
@@ -45,19 +40,8 @@ body {
   text-align: center;
 }
 
-.login-logo {
-  font-family: 'Share Tech Mono', 'IBM Plex Mono', monospace;
-  font-weight: 400;
-  font-size: 25px;
-  letter-spacing: 0.05em;
-}
-.login-logo .cursor {
-  color: var(--accent);
-  text-shadow: 0 0 10px var(--accent);
-  animation: cursor-blink 1.1s step-end infinite;
-}
-.login-logo .sec { color: var(--accent); }
-@keyframes cursor-blink { 0%, 49% { opacity: 1; } 50%, 100% { opacity: 0; } }
+.login-logo { display: flex; justify-content: center; margin-bottom: 18px; }
+/* logo typography lives in /brand/brand.css (matches jegasec.com) */
 
 .login-product {
   margin-top: 6px;
@@ -196,7 +180,7 @@ body {
 @media (max-width: 420px) {
   .login-wrap { padding: 16px; }
   .login-card { padding: 32px 22px; }
-  .login-logo { font-size: 21px; }
+  .login-logo .site-logo--lg { font-size: 21px; }
 }
 
 /* Inputs under 16px trigger an unwanted auto-zoom on focus in iOS Safari. */
@@ -206,12 +190,3 @@ body {
   .otp-box { font-size: 18px; }
 }
 
-/* ---------- Brand mark (octagon) ---------- */
-.login-logo .brand-mark {
-  display: inline-block;
-  vertical-align: middle;
-  width: 32px;
-  height: 32px;
-  margin-right: 9px;
-  background: url('/brand/logo-mark.svg') center / contain no-repeat;
-}

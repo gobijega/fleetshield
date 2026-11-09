@@ -1,0 +1,63 @@
+/* JEGASEC logo, matching jegasec.com (wordmark + tagline + octagon mark).
+   Shared by every page; fonts are self-hosted under /fonts. */
+@font-face {
+  font-family: 'Chakra Petch';
+  src: url('/fonts/chakra-petch-latin-400-normal.woff2') format('woff2');
+  font-weight: 400;
+  font-style: normal;
+  font-display: swap;
+}
+@font-face {
+  font-family: 'Chakra Petch';
+  src: url('/fonts/chakra-petch-latin-500-normal.woff2') format('woff2');
+  font-weight: 500;
+  font-style: normal;
+  font-display: swap;
+}
+
+.site-logo {
+  display: inline-flex;
+  align-items: center;
+  gap: 10px;
+  color: #edf0f3;
+  text-decoration: none;
+  font-family: 'Chakra Petch', 'Share Tech Mono', monospace;
+  font-weight: 400;
+  font-size: 18px;
+  letter-spacing: 0.07em;
+  line-height: 1;
+}
+.site-logo .brand-mark {
+  display: block;
+  flex: 0 0 auto;
+  width: 30px;
+  height: 30px;
+  margin: 0;
+  background: url('/brand/logo-mark.svg') center / contain no-repeat;
+}
+.site-logo .logo-stack {
+  display: flex;
+  flex-direction: column;
+  justify-content: center;
+  gap: 3px;
+  text-align: left;
+}
+.site-logo .wordmark { display: inline-flex; align-items: center; }
+.site-logo .sec { color: #00ff41; }
+.site-logo .site-tagline {
+  font-size: 10.5px;
+  letter-spacing: 0.14em;
+  text-transform: uppercase;
+  color: #00ff41;
+  text-shadow: 0 0 8px rgba(0, 255, 65, 0.12);
+  white-space: nowrap;
+}
+
+/* Larger lockup for the login / signup cards */
+.site-logo--lg { font-size: 25px; gap: 12px; }
+.site-logo--lg .brand-mark { width: 40px; height: 40px; }
+.site-logo--lg .site-tagline { font-size: 12px; }
+
+@media (max-width: 600px) {
+  .site-logo .site-tagline { font-size: 9.5px; letter-spacing: 0.1em; }
+}

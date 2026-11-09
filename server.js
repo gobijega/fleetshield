@@ -504,7 +504,7 @@ app.use(
         scriptSrc: ["'self'"],
         styleSrc: ["'self'", 'https://fonts.googleapis.com'],
         fontSrc: ["'self'", 'https://fonts.gstatic.com'],
-        imgSrc: ["'self'", 'data:', 'https://*.basemaps.cartocdn.com'],
+        imgSrc: ["'self'", 'data:', 'https://tile.openstreetmap.org', 'https://basemaps.cartocdn.com', 'https://*.basemaps.cartocdn.com'],
         connectSrc: ["'self'"],
         objectSrc: ["'none'"],
         baseUri: ["'self'"],
@@ -889,6 +889,9 @@ app.get('/api/me', (req, res) => {
     subscriptionStatus: req.org.subscription_status,
     vehicleCount: orgState.vehicles.size,
     pricePerVehicleAud: 17.5,
+    // Optional free CARTO basemaps key (carto.com/basemaps/apikey). When set,
+    // the live map uses CARTO Dark Matter; otherwise darkened OSM tiles.
+    mapTileKey: process.env.CARTO_BASEMAP_KEY || null,
   });
 });
 

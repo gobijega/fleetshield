@@ -173,10 +173,33 @@ document.getElementById('csvImportForm').addEventListener('submit', async (e) =>
 // Map setup
 // ---------------------------------------------------------------------------
 const map = L.map('map').setView([-37.8136, 144.9631], 10);
-L.tileLayer('https://{s}.basemaps.cartocdn.com/dark_all/{z}/{x}/{y}{r}.png', {
-  attribution: '&copy; OpenStreetMap contributors &copy; CARTO',
-  maxZoom: 19,
-}).addTo(map);
+
+// Base map. CARTO's raster tiles stopped serving without an API key on
+// 25 Sep 2026 (they return an "API KEY REQUIRED" placeholder), which left
+// the map blank. If CARTO_BASEMAP_KEY is set on the server we use CARTO
+// Dark Matter with it; otherwise standard OpenStreetMap tiles, darkened
+// with a CSS filter (.tiles-dark in style.css) to suit the theme.
+// referrerPolicy: the app sends no Referer by default (helmet), but OSM's
+// tile servers require one, so tiles opt back in to sending the origin.
+function addBaseLayer(cartoKey) {
+  const common = { maxZoom: 19, referrerPolicy: 'strict-origin-when-cross-origin' };
+  if (cartoKey) {
+    L.tileLayer(
+      `https://basemaps.cartocdn.com/rastertiles/dark_all/{z}/{x}/{y}{r}.png?key=${encodeURIComponent(cartoKey)}`,
+      { ...common, attribution: '&copy; OpenStreetMap contributors &copy; CARTO' }
+    ).addTo(map);
+  } else {
+    L.tileLayer('https://tile.openstreetmap.org/{z}/{x}/{y}.png', {
+      ...common,
+      className: 'tiles-dark',
+      attribution: '&copy; <a href="https://www.openstreetmap.org/copyright">OpenStreetMap</a> contributors',
+    }).addTo(map);
+  }
+}
+fetch('/api/me')
+  .then((r) => (r.ok ? r.json() : {}))
+  .catch(() => ({}))
+  .then((me) => addBaseLayer(me && me.mapTileKey));
 
 // Leaflet sizes its tile grid from the #map container's dimensions at the
 // moment it's told to recalculate. On phones the container can be the
