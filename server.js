@@ -33,6 +33,7 @@ const helmet = require('helmet');
 const rateLimit = require('express-rate-limit');
 const bcrypt = require('bcryptjs');
 const { WebSocketServer } = require('ws');
+const compression = require('compression');
 const db = require('./db');
 const { sessionMiddleware, attachAuthRoutes, requireAuth, verifyWsClient, requireCsrf, audit } = require('./auth');
 const {
@@ -484,6 +485,16 @@ function serializeVehicles(orgState) {
 
 const app = express();
 app.set('trust proxy', 1);
+
+// Compress HTML/JS/CSS/JSON responses — cuts dashboard and API transfer size
+// several-fold. Does not touch the WebSocket upgrade or the raw Stripe
+// webhook request body.
+app.use(compression());
+
+// Liveness probe for the host's health check (Fly.io). Deliberately does not
+// touch Postgres, so a brief DB blip doesn't make the platform pull the only
+// machine out of rotation. /api/health below still reports DB status.
+app.get('/healthz', (req, res) => res.type('text').send('ok'));
 
 app.use(
   helmet({
@@ -1361,7 +1372,23 @@ async function boot() {
 
   setInterval(tick, TICK_MS);
 
-  server.listen(PORT, () => {
+  // Graceful shutdown: the host sends SIGTERM on every deploy/restart. Close
+  // sockets, the listener and the pg pool so in-flight requests finish.
+  let shuttingDown = false;
+  const shutdown = (signal) => {
+    if (shuttingDown) return;
+    shuttingDown = true;
+    console.log(`${signal} received — shutting down.`);
+    wss.clients.forEach((c) => c.close(1012, 'server restarting'));
+    server.close(() => {
+      db.pool.end().finally(() => process.exit(0));
+    });
+    setTimeout(() => process.exit(0), 8000).unref();
+  };
+  process.on('SIGTERM', () => shutdown('SIGTERM'));
+  process.on('SIGINT', () => shutdown('SIGINT'));
+
+  server.listen(PORT, '0.0.0.0', () => {
     console.log(`Fleet Shield running at http://localhost:${PORT}`);
     console.log(`Restored ${allOrgs.length} organization(s), ${totalVehicles} vehicle(s) total from Postgres.`);
     console.log(`Billing: ${billing.billingEnabled ? 'enabled (Stripe)' : 'DISABLED (STRIPE_* env vars not set)'}`);

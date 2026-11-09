@@ -1,0 +1,47 @@
+# Fly.io config for Fleet Shield — see DEPLOY.md.
+# Deploy with: fly deploy   (or push to main; .github/workflows/deploy.yml)
+
+app = "fleetshield"
+primary_region = "syd"          # Sydney — closest to Australian users
+kill_signal = "SIGTERM"
+kill_timeout = "10s"
+
+[build]
+  dockerfile = "Dockerfile"
+
+[deploy]
+  # Runs before each new version goes live. Idempotent (IF NOT EXISTS
+  # throughout), so safe on every deploy.
+  release_command = "node scripts/migrate.js"
+  strategy = "immediate"
+
+[env]
+  NODE_ENV = "production"
+  PORT = "8080"
+  DB_WRITE_EVERY_N_TICKS = "3"
+  APP_BASE_URL = "https://fleetshield.systems"
+
+[http_service]
+  internal_port = 8080
+  force_https = true
+  # Always-on: no cold starts. The fleet simulator and WebSocket feed live
+  # in-process, so this app must run as exactly ONE machine that never sleeps.
+  auto_stop_machines = "off"
+  auto_start_machines = true
+  min_machines_running = 1
+
+  [http_service.concurrency]
+    type = "connections"
+    soft_limit = 200
+    hard_limit = 250
+
+  [[http_service.checks]]
+    grace_period = "20s"
+    interval = "30s"
+    method = "GET"
+    path = "/healthz"
+    timeout = "5s"
+
+[[vm]]
+  size = "shared-cpu-1x"
+  memory = "512mb"

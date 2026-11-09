@@ -1,74 +1,65 @@
-# Deploying Fleet Shield: Timescale Cloud + Render
+# Deploying Fleet Shield: Fly.io, Sydney (app + database)
 
-Two accounts, both free to start. ~15 minutes.
+App and database both run in Sydney on Fly.io, talking over Fly's private
+network, so Australian users get ~10–30 ms round trips with no cold starts.
 
-## 1. Database — Timescale Cloud
+- `fly.toml` — the app: one always-on `shared-cpu-1x` / 512 MB machine.
+- `fly-db.toml` — TimescaleDB on a private 1 GB machine with a 3 GB volume
+  (daily snapshots kept 14 days). Not reachable from the internet.
 
-1. Go to [console.cloud.timescale.com](https://console.cloud.timescale.com/) and sign
-   up (email + password, verify via the confirmation email).
-2. Click **Create service**. Choose the **Time-series** service type.
-3. Pick the free tier, any region (closer to your Render region = lower latency —
-   `us-east` is a safe default since Render's free plan runs there too).
-4. Once the service is provisioning, copy the connection string it gives you. It looks
-   like:
-   ```
-   postgres://tsdbadmin:<password>@<service>.tsdb.cloud.timescale.com:<port>/tsdb?sslmode=require
-   ```
-   Save this somewhere — you'll paste it into Render as `DATABASE_URL` in step 2.4.
-   (Timescale's free tier includes the TimescaleDB extension pre-installed, so
-   `CREATE EXTENSION timescaledb` in the migration will work without any extra setup.)
+Rough cost: US$8–10/month total. Fly needs a card on file.
 
-## 2. App — Render
+## 1. One-time setup
 
-1. Push the latest `telematics-mvp` code (including `render.yaml`) to the `fleetshield`
-   GitHub repo if you haven't already.
-2. Go to [dashboard.render.com](https://dashboard.render.com/) and sign up / log in
-   (GitHub sign-in is the quickest — it also handles repo access).
-3. Click **New** → **Blueprint**, and select the `fleetshield` repo. Render will detect
-   `render.yaml` and show you the `fleetshield` web service it defines.
-4. Before deploying, set these environment variables in the Render dashboard
-   (`render.yaml` marks them `sync: false` deliberately — secrets shouldn't live in the
-   repo):
-   - `DATABASE_URL` — the Timescale connection string from step 1.4.
-   - `ADMIN_USERNAME` — whatever username you want to log in with.
-   - `ADMIN_PASSWORD_HASH` — generate this locally first: `npm run hash-password -- "your-password"`,
-     then paste the output (a `$2b$...` bcrypt hash, not the plain password) here.
-   - `SESSION_SECRET` is handled for you — `render.yaml` sets `generateValue: true`, so
-     Render generates and stores a random one automatically.
-   - `ADMIN_TOTP_SECRET` — optional, turns on mandatory MFA for login. Skip it for now if
-     you want the service up quickly; run `npm run setup-mfa` later and add this var
-     (Environment tab → Save, which restarts the service) whenever you're ready. See the
-     README's "Security" section.
-   - `STRIPE_SECRET_KEY`, `STRIPE_WEBHOOK_SECRET`, `STRIPE_PRICE_ID`, `APP_BASE_URL` —
-     optional, enable self-service signup + subscription billing. Skip all four to launch
-     without public signup (the existing single-admin login still works fine). See
-     "Enabling billing" below whenever you're ready to turn it on.
-5. Click **Apply** / **Deploy**. Render will:
-   - run `npm install && npm run migrate` (build — installs deps, then creates the tables
-     + hypertable in Timescale; folded into the build step since `preDeployCommand` is a
-     paid-plan-only Render feature and the migration is safe to (re-)run on every build),
-   - run `npm start` (boot the server, which seeds the 10-vehicle fleet on first run).
-6. Once it's live, open `https://<your-service>.onrender.com/api/health` — you should
-   see `{"ok":true,"db":"connected"}`. Then open the root URL — it should redirect you to
-   `/login.html`. Sign in with the username/password you set above.
+```sh
+# install flyctl: https://fly.io/docs/flyctl/install/
+fly auth login
+./scripts/fly-setup.sh          # macOS/Linux/Git Bash
+# Windows PowerShell:
+# powershell -ExecutionPolicy Bypass -File scripts\fly-setup.ps1
+```
 
-## 3. Custom domain — Cloudflare
+The script creates both apps and the volume, generates the DB password and
+`SESSION_SECRET`, asks for the admin username/password (hashed locally — the
+plain password never leaves your machine), then deploys. Migrations run
+automatically before each app release (`release_command` in `fly.toml`).
 
-If you bought a domain through Cloudflare and want it pointing at this app instead of
-(or alongside) `jegasec.com`:
+Check `https://fleetshield.fly.dev/api/health` → `{"ok":true,"db":"connected"}`.
 
-1. **Render side**: your service → **Settings** → **Custom Domains** → **Add Custom
-   Domain**. Enter something like `fleet.jegasec.com`. Render shows you a CNAME target
-   (looks like `<your-service>.onrender.com`).
-2. **Cloudflare side**: DNS → **Add record** → type `CNAME`, name `fleet` (or whatever
-   subdomain you chose), target the hostname Render gave you, proxy status **Proxied**
-   (orange cloud) — Cloudflare's proxy supports WebSockets on every plan, including
-   free, so live vehicle updates will keep working through it.
-3. **SSL/TLS mode**: same setup as `jegasec.com` — SSL/TLS → Overview → set to **Full**
-   or **Full (strict)**, and turn on **Always Use HTTPS** under Edge Certificates. Render
-   issues its own certificate for the custom domain automatically once DNS resolves.
-4. Give it a few minutes for DNS to propagate, then visit `https://fleet.jegasec.com` —
-   you should land on the login page.
+Optional extras, any time (each restarts the app):
+
+```sh
+fly secrets set -a fleetshield ADMIN_TOTP_SECRET=...            # MFA, see README
+fly secrets set -a fleetshield PUBLIC_SIGNUP_ENABLED=true       # only when intended
+fly secrets set -a fleetshield STRIPE_SECRET_KEY=... STRIPE_WEBHOOK_SECRET=... STRIPE_PRICE_ID=...
+```
+
+Useful: `fly logs -a fleetshield`, `fly ssh console -a fleetshield-db` then
+`psql -U fleetshield` for a SQL shell, `fly volumes snapshots list <vol-id>`
+for backups.
+
+**Exactly one app machine.** The fleet simulator and WebSocket feed run
+in-process. Always deploy with `--ha=false`; if `fly status` ever shows two
+app machines, run `fly scale count 1 -a fleetshield --yes`.
+
+### Auto-deploy on push
+
+`.github/workflows/deploy.yml` deploys after CI passes on `main`. Create a token
+with `fly tokens create deploy -x 999999h` and add it as the `FLY_API_TOKEN`
+repo secret (GitHub → Settings → Secrets and variables → Actions).
+
+## 3. Cut the domain over (Cloudflare)
+
+1. `fly certs add fleetshield.systems` (and `fly certs add www.fleetshield.systems`
+   if used). Fly prints the records it needs.
+2. In Cloudflare DNS, replace the record pointing at `*.onrender.com` with a
+   CNAME to `fleetshield.fly.dev`. Set it to **DNS only (grey cloud)** until
+   `fly certs show fleetshield.systems` says the certificate is issued, then
+   you can switch to **Proxied** if you want Cloudflare in front. SSL/TLS mode
+   must be **Full (strict)**.
+3. Update the Stripe webhook endpoint if its URL used the `onrender.com` host.
+4. Once the domain serves from Fly and a login works, suspend/delete the Render
+   service and `render.yaml`.
 
 ## Enabling billing
 
@@ -84,9 +75,9 @@ If you bought a domain through Cloudflare and want it pointing at this app inste
    events `checkout.session.completed`, `customer.subscription.updated`,
    `customer.subscription.deleted`, `invoice.paid`, `invoice.payment_failed`. Copy the
    signing secret (`whsec_...`).
-4. In Render's Environment tab, set `STRIPE_SECRET_KEY`, `STRIPE_WEBHOOK_SECRET`,
-   `STRIPE_PRICE_ID` (from steps 1-3) and `APP_BASE_URL` (your live domain, e.g.
-   `https://fleetshield.systems`) → Save, which restarts the service.
+4. Set `STRIPE_SECRET_KEY`, `STRIPE_WEBHOOK_SECRET`,
+   `STRIPE_PRICE_ID` (from steps 1-3) with `fly secrets set ...`, which restarts the machine.
+   `APP_BASE_URL` is already set in `fly.toml`.
 5. Visit `/signup.html` and run through a full signup with a real (or, in test mode, a
    test) card to confirm: the org is created, Checkout redirects back to
    `/signup-success.html`, the webhook fires and flips `subscription_status` to `active`,
@@ -95,18 +86,12 @@ If you bought a domain through Cloudflare and want it pointing at this app inste
 
 ## Notes for a tender / client demo
 
-- **Cold starts**: Render's free plan spins a service down after 15 minutes of no
-  traffic; the next request takes ~30–50s to wake it back up. Fine for casual use, but
-  jarring if you're live-demoing it to a prospective partner. Upgrade to the
-  **Starter** plan (~US$7/mo) before any real walkthrough so it's instant and always-on.
-- **Free-tier DB storage**: Timescale's free tier has a storage cap; once hit, the
-  service goes read-only. `render.yaml` sets `DB_WRITE_EVERY_N_TICKS=3` to throttle
-  position-write volume by default — raise it further, or upgrade the Timescale plan,
-  if you run it for days at a time.
-- **Re-seeding**: the fleet only seeds itself once, when the `vehicles` table is empty.
-  To reset demo data, drop the tables in Timescale's SQL console and redeploy (or just
-  wait for the pre-deploy migration to re-run against empty tables).
-- **Admin login**: there's a single admin account (see step 2.4) protecting the whole
-  dashboard, API, and live WebSocket feed. Rotate the password by re-running
-  `npm run hash-password -- "new-password"` and updating `ADMIN_PASSWORD_HASH` in Render
-  — no redeploy needed, just save the env var and Render restarts the service.
+- **No cold starts**: `fly.toml` sets `auto_stop_machines = "off"` and
+  `min_machines_running = 1`, so the app is always warm.
+- **DB storage**: the volume is 3 GB. Grow it with
+  `fly volumes extend <vol-id> -s 10 -a fleetshield-db`. `DB_WRITE_EVERY_N_TICKS=3`
+  throttles position writes.
+- **Re-seeding**: the fleet seeds itself only when the `vehicles` table is empty.
+- **Admin login**: rotate with `npm run hash-password -- "new-password"` then
+  `fly secrets set ADMIN_PASSWORD_HASH='...'` (restarts the machine).
+- **Logs**: `fly logs`. **Shell**: `fly ssh console`.

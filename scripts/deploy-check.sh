@@ -1,16 +1,16 @@
 #!/bin/sh
 # Repeatable pre-deploy verification for Fleet Shield (fleetshield.systems).
 #
-# This script does NOT trigger a Render deployment itself -- deployment
+# This script does NOT trigger a Fly.io deployment itself -- deployment
 # happens automatically when this repository's `main` branch is pushed
-# to GitHub (Render's connected-repo auto-deploy, per render.yaml). What
+# to GitHub (.github/workflows/deploy.yml runs `fly deploy` after CI passes). What
 # this script does is everything that should happen BEFORE that push.
 # Pair with docs/deployment-verification-checklist.md for the steps to
 # run AFTER the push, against the live URL.
 #
 # Does not run a live database migration -- that's `npm run migrate`,
-# executed automatically as part of Render's own buildCommand
-# (see render.yaml), against the real DATABASE_URL, not something to run
+# executed automatically as Fly's release_command (fly.toml)
+# (see fly.toml), against the real DATABASE_URL, not something to run
 # casually from a local machine against production.
 
 set -e
@@ -25,7 +25,7 @@ echo "Branch: $BRANCH"
 echo "Commit: $COMMIT"
 if [ "$BRANCH" != "main" ]; then
   echo "WARNING: not on main -- this is fine for local testing, but only a" \
-       "push to main triggers the real Render deploy."
+       "push to main triggers the real Fly.io deploy."
 fi
 if [ -n "$(git status --porcelain)" ]; then
   echo "WARNING: working tree has uncommitted changes."

@@ -103,7 +103,7 @@ just point `DATABASE_URL` at it (see `.env.example`) and run `npm run migrate` o
 ### Topping up an already-running deployment
 
 The automatic backfill above only fires once, on a brand-new/empty database. If a
-deployment (e.g. the live Render/Timescale instance) has been running a short while and
+deployment (e.g. the live Fly.io/Tiger Cloud instance) has been running a short while and
 Reports still looks sparse, add more simulated history on demand:
 
 ```
@@ -154,7 +154,7 @@ npm run setup-mfa
 
 This prints a secret and a QR code — scan it into Google Authenticator, Authy, 1Password,
 etc. Then set `ADMIN_TOTP_SECRET` to the printed secret (locally: add it to `.env`; on
-Render: Environment tab → add the variable → Save, which restarts the service). From the
+Fly.io: `fly secrets set NAME=value`, which restarts the machine). From the
 next login onward, the password step is followed by a 6-digit code prompt. Losing access
 to the authenticator app means removing `ADMIN_TOTP_SECRET` to fall back to
 password-only, then re-running the setup script to re-enrol.
@@ -232,7 +232,7 @@ modify another's fleet data.
 ## Deploying it for real
 
 See **[DEPLOY.md](./DEPLOY.md)** for the full walkthrough: a managed TimescaleDB
-instance (Timescale Cloud) plus a persistent, WebSocket-capable host (Render).
+instance (Timescale Cloud) plus a persistent, WebSocket-capable host (Fly.io, Sydney).
 
 ## REST API
 

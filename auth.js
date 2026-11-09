@@ -60,7 +60,7 @@ const sessionMiddleware = session({
   cookie: {
     httpOnly: true,
     sameSite: 'lax',
-    secure: 'auto', // requires app.set('trust proxy', 1) behind Render/Cloudflare
+    secure: 'auto', // requires app.set('trust proxy', 1) behind Fly.io/Cloudflare
     maxAge: 12 * 60 * 60 * 1000, // 12h
   },
 });

@@ -17,6 +17,7 @@
   },
   "dependencies": {
     "bcryptjs": "^3.0.3",
+    "compression": "^1.8.2",
     "cookie": "^0.7.2",
     "cookie-signature": "^1.2.2",
     "dotenv": "^16.4.5",

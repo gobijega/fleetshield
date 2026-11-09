@@ -1,0 +1,27 @@
+# Fly.io config for Fleet Shield's database: TimescaleDB on a private
+# machine + persistent volume in Sydney, next to the app. Not exposed to the
+# internet — the app reaches it at fleetshield-db.internal:5432 over Fly's
+# private (WireGuard) network. Created by scripts/fly-setup.sh.
+
+app = "fleetshield-db"
+primary_region = "syd"
+kill_signal = "SIGINT"
+kill_timeout = "30s"
+
+[build]
+  image = "timescale/timescaledb:latest-pg16"
+
+[env]
+  POSTGRES_USER = "fleetshield"
+  POSTGRES_DB = "fleetshield"
+  PGDATA = "/var/lib/postgresql/data/pgdata"
+  # POSTGRES_PASSWORD is a Fly secret
+
+[mounts]
+  source = "pgdata"
+  destination = "/var/lib/postgresql/data"
+  snapshot_retention = 14   # daily volume snapshots kept 14 days (backups)
+
+[[vm]]
+  size = "shared-cpu-1x"
+  memory = "1gb"

@@ -1,0 +1,12 @@
+node_modules
+.git
+.github
+.githooks
+.env
+*.log
+tests
+docs
+future-signup
+docker-compose.yml
+render.yaml
+fly-db.toml
