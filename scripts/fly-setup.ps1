@@ -40,10 +40,11 @@ if (-not ((& $FlyExe secrets list -a $App 2>$null) -match 'ADMIN_PASSWORD_HASH')
   $User = Read-Host 'Admin username'
   $Sec = Read-Host 'Admin password (12+ chars)' -AsSecureString
   $Pass = [Runtime.InteropServices.Marshal]::PtrToStringAuto([Runtime.InteropServices.Marshal]::SecureStringToBSTR($Sec))
-  if (-not (Test-Path node_modules)) { npm install --silent }
+  if (-not (Test-Path node_modules\bcryptjs)) { npm install --silent }
   $env:FS_PW = $Pass
   $Hash = node -e "console.log(require('bcryptjs').hashSync(process.env.FS_PW, 12))"
   Remove-Item Env:FS_PW
+  if (-not $Hash -or -not $Hash.StartsWith('$2')) { throw 'Password hashing failed - run npm install and re-run this script.' }
   Run-Fly @('secrets','set','-a',$App,'--stage',"ADMIN_USERNAME=$User","ADMIN_PASSWORD_HASH=$Hash")
 }
 
