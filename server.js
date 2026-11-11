@@ -50,6 +50,7 @@ const { backfillVehicleHistory, backfillAlerts } = require('./lib/backfill');
 const orgs = require('./lib/organizations');
 const billing = require('./lib/billing');
 const { runCsvImport } = require('./lib/ingestion/import-service');
+const reports = require('./lib/reports');
 
 const PORT = process.env.PORT || 3000;
 const TICK_MS = 2000; // simulation heartbeat
@@ -141,13 +142,14 @@ async function ensureDefaultOrgSeed() {
       );
     }
 
-    // Fresh install — backfill ~14 days of realistic simulated operating
-    // history so Reports has something to show from the very first load.
+    // Fresh install — backfill ~30 days of realistic simulated operating
+    // history so Reports has something to show from the very first load,
+    // including a full comparison period for the default 14-day view.
     // Gated on the 'default' org's vehicles table being empty, so it never
     // re-runs and piles up extra history on a restart.
-    console.log('Backfilling ~14 days of simulated fleet history for Reports...');
-    const backfillSummary = await backfillVehicleHistory(db, SEED_VEHICLES, { days: 14 }, 'default');
-    const alertsInserted = await backfillAlerts(db, SEED_VEHICLES, { days: 14 }, 'default');
+    console.log('Backfilling ~30 days of simulated fleet history for Reports...');
+    const backfillSummary = await backfillVehicleHistory(db, SEED_VEHICLES, { days: 30 }, 'default');
+    const alertsInserted = await backfillAlerts(db, SEED_VEHICLES, { days: 30 }, 'default');
     const totalKm = backfillSummary.reduce((s, v) => s + v.addedKm, 0);
     console.log(`Backfill complete: ~${totalKm} km and ${alertsInserted} alerts across ${backfillSummary.length} vehicles.`);
   }
@@ -1244,6 +1246,32 @@ app.get('/api/reports/summary', (req, res) => {
     alertCounts,
     perVehicle,
   });
+});
+
+// Period-based fleet report (Reports tab). See lib/reports.js for how each
+// figure is derived. Query: ?preset=today|7d|14d|30d|90d, or
+// ?from=YYYY-MM-DD&to=YYYY-MM-DD (local dates, inclusive); optional
+// &fuel=diesel|petrol|ev. Always compared with the equal-length period
+// immediately before.
+app.get('/api/reports/fleet', async (req, res) => {
+  const period = reports.resolvePeriod(req.query, reports.reportTimeZone());
+  if (period.error) return res.status(400).json({ error: period.error });
+  const { fuel, error: fuelError } = reports.parseFuelFilter(req.query.fuel);
+  if (fuelError) return res.status(400).json({ error: fuelError });
+
+  const vehicles = Array.from(getOrgState(req.orgId).vehicles.values())
+    .filter((v) => !fuel || v.fuelType === fuel)
+    .sort((a, b) => a.id.localeCompare(b.id))
+    .map((v) => ({ id: v.id, label: v.label, driver: v.driver, fuelType: v.fuelType, idleRatePerHour: v.idleRatePerHour }));
+
+  try {
+    const inputs = await reports.fetchReportInputs(db, { orgId: req.orgId, vehicleIds: vehicles.map((v) => v.id), period });
+    res.set('Cache-Control', 'no-store');
+    res.json(reports.buildReport({ period, vehicles, fuel, ...inputs }));
+  } catch (err) {
+    console.error(err);
+    res.status(500).json({ error: 'report failed' });
+  }
 });
 
 app.get('/api/reports/emissions', (req, res) => {

@@ -39,8 +39,14 @@ the broader council/utility/government use case):
   fleet-wide.
 - **Understanding of driver behaviour** — live, filterable alerts log covering harsh
   events, speeding, and idling, attributed to driver and vehicle.
-- **Operational efficiency** — fleet reporting dashboard: distance travelled, average
-  speed, idle vehicles, trip counts, and utilisation.
+- **Operational efficiency** — fleet reporting for any period (today, 7/14/30/90 days or
+  a custom range), each figure compared with the period before: distance, utilisation,
+  idling and the fuel it burns, active days per vehicle, and a sortable per-vehicle
+  table with a drill-down. Rule-based findings point to emissions concentration, idling,
+  driving-risk outliers and under-used vehicles. Exports to CSV and prints to a clean
+  A4 report (or PDF).
+- **Driving risk** — safety events weighted by severity and normalised per 100 km, with
+  a daily severity trend, a breakdown by event type, and a weekday-by-hour heatmap.
 - **Emissions performance & reporting** — per-vehicle fuel/energy consumption and CO2-e
   emissions (diesel, petrol, and EV fleet mix, using standard combustion and grid
   emission factors), rolled up to fleet totals and broken down by fuel type.
@@ -91,9 +97,10 @@ these gate the whole dashboard behind a login page. See `.env.example`.
 
 Then open **http://localhost:3000** — it'll redirect to the login page first. On first
 boot the server seeds the 10-vehicle fleet and 3 geofences into the database, and also
-backfills ~14 days of realistic simulated operating history (distance, fuel/CO2,
-utilisation, and a spread of alerts) per vehicle, so the **Reports tab has real numbers
-to show immediately** instead of starting at zero and building up over hours of live
+backfills ~30 days of realistic simulated operating history (distance, fuel/CO2,
+utilisation, and a spread of alerts) per vehicle, written as one row per working day, so
+the **Reports tab has real day-by-day numbers — and a full comparison period for the
+default 14-day view — immediately** instead of starting at zero and building up over hours of live
 ticking. On every subsequent boot the fleet restores where it left off instead of
 re-seeding.
 
@@ -245,7 +252,8 @@ instance (Timescale Cloud) plus a persistent, WebSocket-capable host (Fly.io, Sy
 | GET | `/api/geofences` | Configured geofence zones |
 | POST | `/api/geofences` | Add a zone: `{ name, lat, lng, radiusM, type }` |
 | DELETE | `/api/geofences/:id` | Remove a zone |
-| GET | `/api/reports/summary` | Fleet KPIs, alert counts, per-vehicle stats (incl. emissions & utilisation) |
+| GET | `/api/reports/fleet` | Period report for the Reports tab: `?preset=today\|7d\|14d\|30d\|90d` or `?from=&to=` (local dates), optional `&fuel=diesel\|petrol\|ev`. KPIs vs the previous period, daily series, alert breakdowns, per-vehicle table and findings. Days are local to `REPORT_TIMEZONE` (default `Australia/Melbourne`). See `lib/reports.js` |
+| GET | `/api/reports/summary` | Lifetime fleet KPIs, alert counts, per-vehicle stats (incl. emissions & utilisation) |
 | GET | `/api/reports/emissions` | Fleet + per-vehicle CO2-e, fuel/energy use, breakdown by fuel type |
 | GET | `/api/compliance` | Per-vehicle safety score, rego expiry status, service-due status |
 | GET | `/api/audit?limit=` | Security audit trail: login/MFA/logout events, geofence/vehicle changes |

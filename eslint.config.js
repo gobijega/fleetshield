@@ -39,6 +39,12 @@ module.exports = [
         ResizeObserver: 'readonly',
         WebSocket: 'readonly',
         confirm: 'readonly',
+        // protected/reports.js
+        authedFetch: 'readonly',
+        requestAnimationFrame: 'readonly',
+        CSS: 'readonly',
+        Blob: 'readonly',
+        URL: 'readonly',
       },
     },
     rules: {

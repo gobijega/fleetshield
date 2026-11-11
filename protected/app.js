@@ -59,7 +59,7 @@ document.querySelectorAll('.tab-btn').forEach((btn) => {
     document.querySelectorAll('.tab-panel').forEach((p) => p.classList.remove('active'));
     btn.classList.add('active');
     document.getElementById(`tab-${btn.dataset.tab}`).classList.add('active');
-    if (btn.dataset.tab === 'reports') loadReports();
+    if (btn.dataset.tab === 'reports') window.loadReports();
     if (btn.dataset.tab === 'compliance') loadCompliance();
     if (btn.dataset.tab === 'fleet') loadFleetTab();
     if (btn.dataset.tab === 'import') loadImportHistory();
@@ -313,107 +313,8 @@ document.getElementById('alertFilter').addEventListener('change', (e) => {
 });
 
 // ---------------------------------------------------------------------------
-// Reports
+// Reports — see reports.js (window.loadReports).
 // ---------------------------------------------------------------------------
-let alertChart, distanceChart, emissionsChart, utilisationChart;
-
-async function loadReports() {
-  const res = await authedFetch('/api/reports/summary');
-  const data = await res.json();
-
-  document.getElementById('summaryCards').innerHTML = `
-    <div class="card"><div class="value">${data.fleetSize}</div><div class="label">Vehicles in fleet</div></div>
-    <div class="card"><div class="value">${data.totalDistanceKm}</div><div class="label">Total distance (km)</div></div>
-    <div class="card"><div class="value">${data.avgSpeedKmh}</div><div class="label">Avg speed (km/h)</div></div>
-    <div class="card"><div class="value">${data.vehiclesIdling}</div><div class="label">Vehicles idling</div></div>
-    <div class="card"><div class="value">${data.avgUtilisationPct}%</div><div class="label">Avg utilisation</div></div>
-    <div class="card"><div class="value">${data.totalCO2Kg}</div><div class="label">Total CO2 (kg)</div></div>
-    <div class="card"><div class="value">${data.totalAlerts}</div><div class="label">Total alerts</div></div>
-  `;
-
-  const alertLabels = Object.keys(data.alertCounts);
-  const alertValues = Object.values(data.alertCounts);
-  if (alertChart) alertChart.destroy();
-  alertChart = new Chart(document.getElementById('alertChart'), {
-    type: 'bar',
-    data: {
-      labels: alertLabels.map((l) => l.replace(/_/g, ' ')),
-      datasets: [{ label: 'Count', data: alertValues, backgroundColor: '#4f8cff' }],
-    },
-    options: {
-      plugins: { legend: { display: false } },
-      scales: {
-        x: { ticks: { color: '#8b98af' }, grid: { color: '#2a3549' } },
-        y: { ticks: { color: '#8b98af' }, grid: { color: '#2a3549' } },
-      },
-    },
-  });
-
-  if (distanceChart) distanceChart.destroy();
-  distanceChart = new Chart(document.getElementById('distanceChart'), {
-    type: 'bar',
-    data: {
-      labels: data.perVehicle.map((v) => v.id),
-      datasets: [{ label: 'km', data: data.perVehicle.map((v) => v.odometerKm), backgroundColor: '#35c26f' }],
-    },
-    options: {
-      plugins: { legend: { display: false } },
-      scales: {
-        x: { ticks: { color: '#8b98af' }, grid: { color: '#2a3549' } },
-        y: { ticks: { color: '#8b98af' }, grid: { color: '#2a3549' } },
-      },
-    },
-  });
-
-  if (emissionsChart) emissionsChart.destroy();
-  emissionsChart = new Chart(document.getElementById('emissionsChart'), {
-    type: 'bar',
-    data: {
-      labels: data.perVehicle.map((v) => v.id),
-      datasets: [{ label: 'kg CO2', data: data.perVehicle.map((v) => v.co2Kg), backgroundColor: '#f2a93b' }],
-    },
-    options: {
-      plugins: { legend: { display: false } },
-      scales: {
-        x: { ticks: { color: '#8b98af' }, grid: { color: '#2a3549' } },
-        y: { ticks: { color: '#8b98af' }, grid: { color: '#2a3549' } },
-      },
-    },
-  });
-
-  if (utilisationChart) utilisationChart.destroy();
-  utilisationChart = new Chart(document.getElementById('utilisationChart'), {
-    type: 'bar',
-    data: {
-      labels: data.perVehicle.map((v) => v.id),
-      datasets: [{ label: '%', data: data.perVehicle.map((v) => v.utilisationPct), backgroundColor: '#4f8cff' }],
-    },
-    options: {
-      plugins: { legend: { display: false } },
-      scales: {
-        x: { ticks: { color: '#8b98af' }, grid: { color: '#2a3549' } },
-        y: { min: 0, max: 100, ticks: { color: '#8b98af' }, grid: { color: '#2a3549' } },
-      },
-    },
-  });
-
-  document.getElementById('vehicleSummaryRows').innerHTML = data.perVehicle
-    .map(
-      (v) => `
-      <tr>
-        <td>${v.label}</td>
-        <td>${v.driver}</td>
-        <td>${v.fuelType.toUpperCase()}</td>
-        <td><span class="status-pill status-${v.status}">${v.status}</span></td>
-        <td>${v.speedKmh} km/h</td>
-        <td>${v.odometerKm}</td>
-        <td>${v.utilisationPct}%</td>
-        <td>${v.co2Kg}</td>
-        <td>${v.alerts}</td>
-      </tr>`
-    )
-    .join('');
-}
 
 // ---------------------------------------------------------------------------
 // Compliance
