@@ -345,3 +345,280 @@ main { padding: 20px 24px 40px; max-width: 1400px; margin: 0 auto; }
   .geofence-form input, .geofence-form select { font-size: 16px; }
 }
 
+
+/* ---------------------------------------------------------------------
+   Reports tab (reports.js)
+   Restrained by design: hairline panels, one blue data hue, status
+   colours only where they mean good/bad, green accent kept for the
+   selected period and nothing else.
+--------------------------------------------------------------------- */
+.sr-only {
+  position: absolute; width: 1px; height: 1px; padding: 0; margin: -1px;
+  overflow: hidden; clip: rect(0, 0, 0, 0); white-space: nowrap; border: 0;
+}
+
+.rp-head { display: flex; justify-content: space-between; align-items: flex-end; gap: 16px; margin: 4px 0 14px; }
+.rp-eyebrow {
+  margin: 0 0 6px;
+  font-family: 'IBM Plex Mono', monospace;
+  font-size: 11px;
+  letter-spacing: 0.1em;
+  text-transform: uppercase;
+  color: var(--muted);
+}
+.rp-title { margin: 0; font-size: 24px; font-weight: 600; letter-spacing: -0.01em; }
+.rp-sub { margin: 6px 0 0; color: var(--muted); font-size: 13px; }
+.rp-print-brand { display: none; }
+
+.rp-toolbar {
+  display: flex; flex-wrap: wrap; align-items: center; gap: 10px;
+  padding: 10px 0 14px;
+  border-bottom: 1px solid var(--border);
+  margin-bottom: 18px;
+  position: sticky; top: 0; z-index: 5;
+  background: var(--bg);
+}
+.rp-spacer { flex: 1; }
+.rp-seg { display: inline-flex; border: 1px solid var(--border-bright); border-radius: 6px; overflow: hidden; }
+.rp-seg button {
+  background: transparent; border: 0; color: var(--muted);
+  font: 500 12.5px 'Inter', sans-serif;
+  padding: 7px 12px; cursor: pointer; min-height: 34px;
+}
+.rp-seg button + button { border-left: 1px solid var(--border-bright); }
+.rp-seg button:hover { color: var(--text); background: rgba(255, 255, 255, 0.03); }
+.rp-seg button.active { color: var(--text); background: var(--panel-2); box-shadow: inset 0 -2px 0 var(--accent); }
+.rp-custom-inner { display: inline-flex; align-items: center; gap: 6px; }
+.rp-dash { color: var(--muted); }
+.rp-toolbar input[type='date'], .rp-toolbar select, .rp-search input {
+  background: var(--panel-2); color: var(--text);
+  border: 1px solid var(--border-bright); border-radius: 6px;
+  padding: 6px 10px; min-height: 34px; font: 13px 'Inter', sans-serif;
+  color-scheme: dark;
+}
+.rp-btn {
+  background: transparent; color: var(--text);
+  border: 1px solid var(--border-bright); border-radius: 6px;
+  padding: 7px 12px; min-height: 34px; cursor: pointer;
+  font: 500 12.5px 'Inter', sans-serif;
+}
+.rp-btn:hover { border-color: var(--muted); }
+.rp-btn.primary { background: var(--text); color: #05070a; border-color: var(--text); }
+.rp-seg button:focus-visible, .rp-btn:focus-visible, .rp-chip:focus-visible,
+.rp-table tbody tr:focus-visible, .rp-table th:focus-visible {
+  outline: 2px solid var(--accent); outline-offset: -2px;
+}
+
+.rp-body { transition: opacity 0.15s ease; }
+.rp-body.is-loading { opacity: 0.55; pointer-events: none; }
+.rp-error { color: var(--red); background: rgba(255, 77, 94, 0.08); border: 1px solid rgba(255, 77, 94, 0.3); border-radius: 8px; padding: 10px 14px; font-size: 13px; }
+.rp-note { color: var(--muted); border: 1px solid var(--border-bright); border-left: 3px solid var(--amber); border-radius: 6px; padding: 9px 14px; font-size: 13px; margin: 0 0 14px; }
+
+/* KPI tiles */
+.rp-kpis { display: grid; grid-template-columns: repeat(auto-fill, minmax(178px, 1fr)); background: var(--panel); border: 1px solid var(--border); border-radius: 10px; overflow: hidden; }
+/* Hairline dividers drawn by each tile, so a part-filled last row leaves
+   plain panel rather than an empty grey cell. */
+.rp-kpi { padding: 14px 16px 13px; min-width: 0; box-shadow: 1px 0 0 var(--border), 0 1px 0 var(--border); }
+.rp-kpi-label { font-family: 'IBM Plex Mono', monospace; font-size: 10.5px; letter-spacing: 0.08em; text-transform: uppercase; color: var(--muted); }
+.rp-kpi-value { font-size: 26px; font-weight: 600; letter-spacing: -0.02em; margin-top: 8px; font-variant-numeric: tabular-nums; white-space: nowrap; }
+.rp-kpi-value small { font-size: 13px; font-weight: 500; color: var(--muted); letter-spacing: 0; }
+.rp-kpi-foot { display: flex; align-items: center; justify-content: space-between; gap: 8px; margin-top: 6px; min-height: 22px; }
+.rp-kpi-sub { font-size: 12px; color: var(--muted); margin-top: 4px; line-height: 1.35; }
+.rp-spark { width: 64px; height: 22px; color: #6da7ec; flex: none; overflow: visible; }
+.rp-delta { font-size: 12px; font-variant-numeric: tabular-nums; white-space: nowrap; color: var(--muted); }
+.rp-delta.good { color: #35d07f; }
+.rp-delta.bad { color: #ff7a85; }
+.rp-delta-vs { color: var(--muted); }
+
+/* Cards */
+.rp-card { background: var(--panel); border: 1px solid var(--border); border-radius: 10px; padding: 16px 18px; min-width: 0; }
+.rp-card h3 { margin: 0; font-size: 14px; font-weight: 600; color: var(--text); }
+.rp-card-sub { margin: 3px 0 0; font-size: 12px; color: var(--muted); }
+.rp-grid { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 14px; margin-top: 14px; }
+.rp-grid--wide { grid-template-columns: minmax(0, 2fr) minmax(0, 1fr); }
+.rp-chart { position: relative; height: 230px; margin-top: 12px; }
+.rp-chart--sm { height: 170px; }
+.rp-daily-card.is-single .rp-chart { height: 150px; }
+
+/* Findings */
+.rp-findings-card { margin-top: 14px; }
+.rp-findings { list-style: none; margin: 10px 0 0; padding: 0; display: grid; grid-template-columns: repeat(auto-fill, minmax(320px, 1fr)); gap: 10px 18px; }
+.rp-finding { display: flex; gap: 12px; padding: 10px 0; border-top: 1px solid var(--border); }
+.rp-finding strong { font-size: 13px; font-weight: 600; }
+.rp-finding p { margin: 3px 0 0; font-size: 13px; line-height: 1.5; color: #c5cedb; }
+.rp-finding-icon {
+  flex: none; width: 20px; height: 20px; border-radius: 50%;
+  display: grid; place-items: center;
+  font: 600 11px 'IBM Plex Mono', monospace;
+  border: 1px solid var(--border-bright); color: var(--muted); margin-top: 1px;
+}
+.rp-finding.notice .rp-finding-icon { border-color: rgba(255, 176, 32, 0.6); color: var(--amber); }
+.rp-finding.positive .rp-finding-icon { border-color: rgba(53, 208, 127, 0.6); color: #35d07f; }
+.rp-chips { display: flex; flex-wrap: wrap; gap: 6px; margin-top: 8px; }
+.rp-chip {
+  background: transparent; color: var(--text); border: 1px solid var(--border-bright);
+  border-radius: 999px; padding: 3px 10px; font-size: 11.5px; cursor: pointer; min-height: 26px;
+}
+.rp-chip:hover { border-color: var(--muted); }
+
+/* Heatmap */
+.rp-heat-scroll { overflow-x: auto; margin-top: 14px; }
+.rp-heat { display: grid; grid-template-columns: 34px repeat(24, minmax(14px, 1fr)); gap: 2px; min-width: 480px; }
+.rp-heat-hour { font: 10px 'IBM Plex Mono', monospace; color: var(--muted); text-align: left; padding-bottom: 2px; }
+.rp-heat-day { font: 10.5px 'IBM Plex Mono', monospace; color: var(--muted); align-self: center; }
+.rp-heat-cell { aspect-ratio: 1 / 1; border-radius: 2px; min-height: 14px; max-height: 26px; }
+.rp-heat-cell.empty { background: var(--panel-2); }
+.rp-heat-cell:hover { outline: 1px solid var(--text); }
+.rp-heat-legend { display: flex; align-items: center; gap: 3px; margin-top: 12px; font-size: 11px; color: var(--muted); }
+.rp-heat-legend i { width: 16px; height: 10px; border-radius: 2px; display: inline-block; }
+.rp-heat-legend span:first-child { margin-right: 6px; }
+.rp-heat-legend span:last-child { margin-left: 6px; }
+
+/* Fuel mix */
+.rp-fuel-bar { display: flex; gap: 2px; height: 14px; margin-top: 16px; border-radius: 4px; overflow: hidden; }
+.rp-fuel-seg { min-width: 3px; }
+.rp-fuel-rows { margin-top: 14px; display: grid; gap: 10px; }
+.rp-fuel-row { display: grid; grid-template-columns: 10px 1fr auto; column-gap: 10px; row-gap: 2px; align-items: center; font-size: 13px; }
+.rp-fuel-share { font-weight: 600; font-variant-numeric: tabular-nums; }
+.rp-fuel-meta { grid-column: 2 / 4; font-size: 12px; color: var(--muted); }
+.rp-key { width: 10px; height: 10px; border-radius: 2px; display: inline-block; }
+.rp-key.sm { width: 8px; height: 8px; margin-right: 6px; vertical-align: 0; }
+
+/* League table */
+.rp-table-card { margin-top: 14px; padding-bottom: 6px; }
+.rp-table-head { display: flex; justify-content: space-between; align-items: flex-end; gap: 12px; flex-wrap: wrap; }
+.rp-search input { width: 240px; }
+.rp-table-wrap { overflow-x: auto; margin: 12px -18px 0; }
+.rp-table { width: 100%; border-collapse: collapse; font-size: 13px; font-variant-numeric: tabular-nums; }
+.rp-table th {
+  text-align: left; font: 500 10.5px 'IBM Plex Mono', monospace; letter-spacing: 0.06em; text-transform: uppercase;
+  color: var(--muted); padding: 8px 12px; border-bottom: 1px solid var(--border-bright);
+  cursor: pointer; user-select: none; white-space: nowrap;
+}
+.rp-table th:first-child, .rp-table td:first-child { padding-left: 18px; }
+.rp-table th:last-child, .rp-table td:last-child { padding-right: 18px; }
+.rp-table th.num, .rp-table td.num { text-align: right; }
+.rp-table th:hover { color: var(--text); }
+.rp-table th[aria-sort='ascending']::after { content: ' ↑'; color: var(--text); }
+.rp-table th[aria-sort='descending']::after { content: ' ↓'; color: var(--text); }
+.rp-table td { padding: 9px 12px; border-bottom: 1px solid var(--border); white-space: nowrap; }
+.rp-table tbody tr { cursor: pointer; }
+.rp-table tbody tr:hover { background: rgba(255, 255, 255, 0.025); }
+.rp-table tbody tr:last-child td { border-bottom: 0; }
+.rp-veh { min-width: 190px; }
+.rp-veh-label { display: block; font-weight: 500; }
+.rp-veh-meta { display: block; font-size: 11.5px; color: var(--muted); margin-top: 2px; }
+.rp-table .of { color: var(--muted); font-size: 11px; }
+.rp-barcell { position: relative; min-width: 96px; }
+.rp-barcell > span:last-child { position: relative; }
+.rp-inbar { position: absolute; right: 12px; top: 50%; height: 18px; transform: translateY(-50%); max-width: calc(100% - 24px); background: rgba(57, 135, 229, 0.16); border-radius: 0 3px 3px 0; }
+.rp-table td:last-child .rp-inbar { right: 18px; max-width: calc(100% - 30px); }
+.rp-inbar.risk { background: rgba(255, 176, 32, 0.14); }
+.rp-table td.flag > span:last-child, .rp-table td.flag { color: var(--amber); font-weight: 600; }
+.rp-table td.flag .of { font-weight: 400; }
+.rp-sevs > span:first-child { display: inline-block; min-width: 22px; }
+.rp-sevmini { display: inline-flex; gap: 4px; margin-left: 6px; }
+.rp-sevmini b { font: 500 10.5px 'IBM Plex Mono', monospace; padding: 1px 5px; border-radius: 4px; }
+.rp-sevmini b.h { color: #ff7a85; background: rgba(227, 73, 72, 0.14); }
+.rp-sevmini b.m { color: var(--amber); background: rgba(237, 161, 0, 0.12); }
+
+/* Methodology */
+.rp-method { margin-top: 14px; border: 1px solid var(--border); border-radius: 10px; padding: 0 18px; background: var(--panel); }
+.rp-method summary { cursor: pointer; padding: 14px 0; font-size: 13px; color: var(--muted); }
+.rp-method summary:hover { color: var(--text); }
+.rp-method dl { margin: 0 0 16px; display: grid; grid-template-columns: 180px 1fr; gap: 10px 20px; font-size: 13px; line-height: 1.5; }
+.rp-method dt { color: var(--text); font-weight: 500; }
+.rp-method dd { margin: 0; color: #c5cedb; }
+
+/* Vehicle drill-down drawer */
+.rp-scrim { position: fixed; inset: 0; background: rgba(0, 0, 0, 0.55); z-index: 40; }
+.rp-drawer {
+  position: fixed; top: 0; right: 0; bottom: 0; z-index: 41;
+  width: min(480px, 100vw); overflow-y: auto;
+  background: var(--panel); border-left: 1px solid var(--border-bright);
+  padding: 20px 22px 32px;
+  transform: translateX(100%); transition: transform 0.18s ease;
+}
+.rp-drawer.open { transform: none; }
+.rp-drawer-head { display: flex; justify-content: space-between; align-items: flex-start; gap: 12px; }
+.rp-drawer h3 { margin: 0; font-size: 20px; font-weight: 600; }
+.rp-drawer h4 { margin: 22px 0 8px; font: 500 10.5px 'IBM Plex Mono', monospace; letter-spacing: 0.08em; text-transform: uppercase; color: var(--muted); }
+.rp-dstats { display: grid; grid-template-columns: 1fr 1fr; gap: 1px; background: var(--border); border: 1px solid var(--border); border-radius: 8px; overflow: hidden; margin-top: 18px; }
+.rp-dstat { background: var(--panel-2); padding: 10px 12px; }
+.rp-dstat-value { font-size: 17px; font-weight: 600; margin: 4px 0 2px; font-variant-numeric: tabular-nums; }
+.rp-typerow { display: grid; grid-template-columns: 140px 1fr 32px; gap: 10px; align-items: center; font-size: 12.5px; padding: 4px 0; }
+.rp-typebar { height: 8px; background: var(--panel-2); border-radius: 4px; overflow: hidden; }
+.rp-typebar i { display: block; height: 100%; background: #3987e5; border-radius: 0 4px 4px 0; }
+.rp-typerow .num { text-align: right; font-variant-numeric: tabular-nums; }
+.rp-recent { list-style: none; margin: 0; padding: 0; }
+.rp-recent li { display: grid; grid-template-columns: 70px 1fr auto; gap: 10px; align-items: center; padding: 7px 0; border-bottom: 1px solid var(--border); font-size: 12.5px; }
+.rp-recent li.hint { display: block; border: 0; }
+.rp-recent .sev { text-align: center; }
+.rp-recent time { color: var(--muted); font-size: 12px; }
+body.rp-drawer-open { overflow: hidden; }
+
+@media (max-width: 1100px) {
+  .rp-grid { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+  .rp-grid--wide { grid-template-columns: 1fr; }
+}
+@media (max-width: 700px) {
+  .rp-grid { grid-template-columns: 1fr; }
+  .rp-title { font-size: 20px; }
+  .rp-toolbar { position: static; }
+  .rp-seg { width: 100%; }
+  .rp-seg button { flex: 1; padding: 7px 4px; min-height: 40px; }
+  .rp-spacer { display: none; }
+  .rp-kpis { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+  .rp-kpi-value { font-size: 22px; }
+  .rp-spark { display: none; }
+  .rp-findings { grid-template-columns: 1fr; }
+  .rp-search, .rp-search input { width: 100%; }
+  .rp-method dl { grid-template-columns: 1fr; gap: 4px; }
+  .rp-method dd { margin-bottom: 10px; }
+  .rp-toolbar input[type='date'], .rp-toolbar select, .rp-search input { font-size: 16px; }
+}
+
+/* Print / Save as PDF — a light, paper-friendly report. reports.js
+   re-renders the charts in a print palette on beforeprint. */
+@media print {
+  @page { size: A4 portrait; margin: 12mm; }
+  :root {
+    --bg: #ffffff; --panel: #ffffff; --panel-2: #f3f3f1; --border: #dddddc; --border-bright: #c9c9c6;
+    --text: #0b0b0b; --muted: #52514e;
+  }
+  body { background: #fff; color: #0b0b0b; }
+  .topbar, .tabs, .rp-toolbar, .rp-drawer, .rp-scrim, .rp-search, .rp-chips, .rp-error { display: none !important; }
+  main { padding: 0; max-width: none; }
+  .tab-panel { display: none !important; }
+  #tab-reports.active { display: block !important; }
+  .rp-print-brand {
+    display: flex; justify-content: space-between; width: 100%;
+    font: 500 9pt 'IBM Plex Mono', monospace; letter-spacing: 0.06em; text-transform: uppercase;
+    border-bottom: 1.5pt solid #0b0b0b; padding-bottom: 6pt; margin-bottom: 10pt;
+  }
+  .rp-head { display: block; }
+  .rp-eyebrow { display: none; }
+  .rp-finding p, .rp-method dd { color: #26251f; }
+  .rp-kpis { grid-template-columns: repeat(4, 1fr); }
+  .rp-kpi-value { font-size: 18pt; }
+  .rp-grid { grid-template-columns: 1fr 1fr; }
+  .rp-grid--wide { grid-template-columns: 1fr; }
+  .rp-card, .rp-kpis, .rp-finding, .rp-table tr { break-inside: avoid; }
+  .rp-table-card { break-before: page; }
+  /* Charts keep their on-screen bitmap; scale it to the paper column
+     rather than letting it overflow the card. */
+  .rp-chart { height: auto !important; }
+  .rp-chart canvas { width: 100% !important; height: auto !important; }
+  .rp-table-wrap { overflow: visible; }
+  .rp-table td, .rp-table th { padding: 5pt 6pt; }
+  .rp-inbar { background: #dfe9f7 !important; }
+  .rp-inbar.risk { background: #fbeccc !important; }
+  .rp-delta.good { color: #1a7f4b; }
+  .rp-delta.bad { color: #b42318; }
+  .rp-table td.flag, .rp-table td.flag > span:last-child { color: #8a5a00; }
+  .rp-method { display: block; }
+  .rp-method:not([open]) dl { display: grid; }
+  .rp-method summary { color: #0b0b0b; font-weight: 600; list-style: none; }
+  .rp-spark { display: none; }
+  * { -webkit-print-color-adjust: exact; print-color-adjust: exact; }
+}

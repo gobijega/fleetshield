@@ -76,37 +76,171 @@
   </section>
 
   <section id="tab-reports" class="tab-panel">
-    <h2>Fleet Reporting</h2>
-    <div class="cards" id="summaryCards"></div>
-    <div class="reports-grid">
-      <div class="chart-card">
-        <h3>Alerts by Type</h3>
-        <canvas id="alertChart" height="220"></canvas>
+    <header class="rp-head">
+      <div class="rp-print-brand" aria-hidden="true">
+        <span>Fleet Shield · Fleet report</span>
+        <span id="rpPrintOrg"></span>
       </div>
-      <div class="chart-card">
-        <h3>Per-Vehicle Distance (km)</h3>
-        <canvas id="distanceChart" height="220"></canvas>
+      <div>
+        <p class="rp-eyebrow">Fleet reporting</p>
+        <h2 class="rp-title" id="rpPeriod">Loading report…</h2>
+        <p class="rp-sub" id="rpSub"></p>
       </div>
+    </header>
+
+    <div class="rp-toolbar" role="toolbar" aria-label="Report period and filters">
+      <div class="rp-seg" id="rpPresets" role="group" aria-label="Reporting period">
+        <button type="button" data-preset="today">Today</button>
+        <button type="button" data-preset="7d">7 days</button>
+        <button type="button" data-preset="14d">14 days</button>
+        <button type="button" data-preset="30d">30 days</button>
+        <button type="button" data-preset="90d">90 days</button>
+        <button type="button" data-preset="custom">Custom</button>
+      </div>
+      <form class="rp-custom" id="rpCustomForm" hidden>
+        <div id="rpCustom" class="rp-custom-inner">
+          <label><span class="sr-only">From</span><input type="date" id="rpFrom" required /></label>
+          <span class="rp-dash" aria-hidden="true">–</span>
+          <label><span class="sr-only">To</span><input type="date" id="rpTo" required /></label>
+          <button type="submit" class="rp-btn primary">Apply</button>
+        </div>
+      </form>
+      <label class="rp-select"><span class="sr-only">Fuel type</span>
+        <select id="rpFuel">
+          <option value="all">All fuel types</option>
+          <option value="diesel">Diesel</option>
+          <option value="petrol">Petrol</option>
+          <option value="ev">EV</option>
+        </select>
+      </label>
+      <span class="rp-spacer"></span>
+      <button type="button" class="rp-btn" id="rpExportVehicles" title="Download the per-vehicle table as CSV">Vehicles CSV</button>
+      <button type="button" class="rp-btn" id="rpExportDaily" title="Download daily fleet totals as CSV">Daily CSV</button>
+      <button type="button" class="rp-btn" id="rpPrint" title="Print, or save as PDF">Print / PDF</button>
     </div>
-    <div class="reports-grid">
-      <div class="chart-card">
-        <h3>CO2 Emissions by Vehicle (kg)</h3>
-        <canvas id="emissionsChart" height="220"></canvas>
+
+    <div class="rp-body" id="rpBody">
+      <p class="rp-error" id="rpError" role="alert" hidden></p>
+      <p class="rp-note" id="rpCoverage" hidden></p>
+
+      <div class="rp-kpis" id="rpKpis"></div>
+
+      <section class="rp-card rp-findings-card" aria-labelledby="rpFindingsTitle">
+        <h3 id="rpFindingsTitle">Findings</h3>
+        <ol class="rp-findings" id="rpFindings"></ol>
+      </section>
+
+      <div class="rp-grid">
+        <section class="rp-card rp-daily-card">
+          <h3>Distance per day</h3>
+          <p class="rp-card-sub">Kilometres travelled, all vehicles in scope</p>
+          <div class="rp-chart"><canvas id="rpDistance" role="img" aria-label="Bar chart of fleet distance per day. Values are in the daily CSV."></canvas></div>
+        </section>
+        <section class="rp-card rp-daily-card">
+          <h3>CO₂ per day</h3>
+          <p class="rp-card-sub">Kilograms CO₂-e from fuel and charging</p>
+          <div class="rp-chart"><canvas id="rpCo2" role="img" aria-label="Bar chart of fleet CO2 per day. Values are in the daily CSV."></canvas></div>
+        </section>
+        <section class="rp-card rp-daily-card">
+          <h3>Safety events per day</h3>
+          <p class="rp-card-sub">Driver-behaviour and geofence alerts, by severity</p>
+          <div class="rp-chart"><canvas id="rpEvents" role="img" aria-label="Stacked bar chart of alerts per day by severity. Values are in the daily CSV."></canvas></div>
+        </section>
+        <section class="rp-card">
+          <h3>Events by type</h3>
+          <p class="rp-card-sub">Ordered by severity-weighted impact</p>
+          <div class="rp-chart" id="rpTypesWrap"><canvas id="rpTypes" role="img" aria-label="Stacked bar chart of alert counts by type and severity."></canvas></div>
+        </section>
+        <section class="rp-card">
+          <h3>Engine-on time by vehicle</h3>
+          <p class="rp-card-sub">Hours moving versus idling</p>
+          <div class="rp-chart" id="rpEngineWrap"><canvas id="rpEngine" role="img" aria-label="Stacked bar chart of moving and idling hours per vehicle. Values are in the vehicle table."></canvas></div>
+        </section>
+        <section class="rp-card">
+          <h3>Emissions intensity by vehicle</h3>
+          <p class="rp-card-sub">Grams CO₂-e per kilometre, against the fleet average</p>
+          <div class="rp-chart" id="rpIntensityWrap"><canvas id="rpIntensity" role="img" aria-label="Bar chart of CO2 grams per kilometre per vehicle. Values are in the vehicle table."></canvas></div>
+        </section>
       </div>
-      <div class="chart-card">
-        <h3>Utilisation by Vehicle (%)</h3>
-        <canvas id="utilisationChart" height="220"></canvas>
+
+      <div class="rp-grid rp-grid--wide">
+        <section class="rp-card">
+          <h3>When safety events happen</h3>
+          <p class="rp-card-sub">High, medium and low severity events by weekday and hour, local time</p>
+          <div class="rp-heat-scroll"><div class="rp-heat" id="rpHeat" role="grid" aria-label="Safety events by weekday and hour"></div></div>
+          <div class="rp-heat-legend" id="rpHeatLegend"></div>
+        </section>
+        <section class="rp-card">
+          <h3>Emissions by fuel type</h3>
+          <p class="rp-card-sub">Share of fleet CO₂-e</p>
+          <div class="rp-fuel-bar" id="rpFuelBar" aria-hidden="true"></div>
+          <div class="rp-fuel-rows" id="rpFuelRows"></div>
+        </section>
       </div>
+
+      <section class="rp-card rp-table-card" aria-labelledby="rpTableTitle">
+        <div class="rp-table-head">
+          <div>
+            <h3 id="rpTableTitle">Vehicles</h3>
+            <p class="rp-card-sub">Sort by any column. Select a vehicle for its detail.</p>
+          </div>
+          <label class="rp-search"><span class="sr-only">Search vehicles</span><input type="search" id="rpSearch" placeholder="Search vehicle or driver" autocomplete="off" /></label>
+        </div>
+        <div class="rp-table-wrap">
+          <table class="rp-table" id="rpTable">
+            <thead>
+              <tr>
+                <th data-sort="label" scope="col">Vehicle</th>
+                <th data-sort="activeDays" scope="col" class="num">Active days</th>
+                <th data-sort="distanceKm" scope="col" class="num">Distance km</th>
+                <th data-sort="co2Kg" scope="col" class="num">CO₂ kg</th>
+                <th data-sort="co2GPerKm" scope="col" class="num">g CO₂/km</th>
+                <th data-sort="utilisationPct" scope="col" class="num">Utilisation</th>
+                <th data-sort="idleHours" scope="col" class="num">Idle h</th>
+                <th data-sort="events" scope="col" class="num">Events</th>
+                <th data-sort="riskPer100Km" scope="col" class="num">Risk /100 km</th>
+              </tr>
+            </thead>
+            <tbody id="rpRows"></tbody>
+          </table>
+        </div>
+      </section>
+
+      <details class="rp-method">
+        <summary>How these figures are calculated</summary>
+        <dl>
+          <dt>Period and comparison</dt>
+          <dd>Days are local calendar days. Every figure is compared with the period of the same length immediately before it; a period that runs to now is compared up to the same time of day. Changes are not shown when telemetry history does not cover the whole comparison period. Activity is the change in each vehicle's cumulative counters (odometer, fuel or energy, CO₂, engine time) between local midnights, so gaps in telemetry do not distort totals.</dd>
+          <dt>Emissions</dt>
+          <dd>Fuel and energy use multiplied by emission factors: <span id="rpFactors"></span></dd>
+          <dt>Utilisation and idling</dt>
+          <dd>Utilisation is moving time as a share of engine-on time. Idle fuel is idle hours multiplied by each vehicle's idle consumption rate. A vehicle is active on a day when it travels more than 1 km.</dd>
+          <dt>Risk per 100 km</dt>
+          <dd>Safety events weighted by severity, divided by distance, so busy vehicles are not penalised for simply driving more. Weights: <span id="rpWeights"></span> Vehicles more than 1.5 times the fleet rate are flagged. Rates and g/km are not shown below 20 km, where a single event would dominate.</dd>
+          <dt>Findings</dt>
+          <dd>Generated by fixed rules from the numbers on this page. They point to where to look; they do not diagnose causes.</dd>
+        </dl>
+      </details>
     </div>
-    <h3>Per-Vehicle Summary</h3>
-    <div class="alert-table-wrap">
-      <table class="alert-table" id="vehicleSummaryTable">
-        <thead>
-          <tr><th>Vehicle</th><th>Driver</th><th>Fuel</th><th>Status</th><th>Speed</th><th>Distance (km)</th><th>Utilisation</th><th>CO2 (kg)</th><th>Alerts</th></tr>
-        </thead>
-        <tbody id="vehicleSummaryRows"></tbody>
-      </table>
-    </div>
+
+    <div class="rp-scrim" id="rpScrim" hidden></div>
+    <aside class="rp-drawer" id="rpDrawer" role="dialog" aria-modal="true" aria-labelledby="rpDrawerTitle" hidden>
+      <div class="rp-drawer-head">
+        <div>
+          <p class="rp-eyebrow">Vehicle report</p>
+          <h3 id="rpDrawerTitle"></h3>
+          <p class="rp-card-sub" id="rpDrawerMeta"></p>
+        </div>
+        <button type="button" class="rp-btn" id="rpDrawerClose" aria-label="Close vehicle report">Close</button>
+      </div>
+      <div class="rp-dstats" id="rpDrawerStats"></div>
+      <h4>Distance per day</h4>
+      <div class="rp-chart rp-chart--sm"><canvas id="rpDrawerChart" role="img" aria-label="Bar chart of this vehicle's distance per day."></canvas></div>
+      <h4>Events by type, this period</h4>
+      <div id="rpDrawerTypes"></div>
+      <h4>Most recent events</h4>
+      <ul class="rp-recent" id="rpDrawerRecent"></ul>
+    </aside>
   </section>
 
   <section id="tab-fleet" class="tab-panel">
@@ -218,5 +352,6 @@
      no third-party script origins to trust. -->
 <script src="vendor/chart.umd.js"></script>
 <script src="app.js"></script>
+<script src="reports.js"></script>
 </body>
 </html>
