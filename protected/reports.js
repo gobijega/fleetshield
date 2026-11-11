@@ -398,7 +398,8 @@
     const r = state.report;
     const k = r.kpis;
     const s = r.series;
-    const prevLabel = r.period.days === 1 ? 'yesterday' : `prev. ${r.period.days} days`;
+    // The subtitle names the comparison period, so the chips stay short.
+    const prevLabel = r.period.days === 1 ? 'yesterday' : 'prev.';
     // Rates are withheld over very short distances (see methodology).
     const totalEvents = (d) => d.alerts.high + d.alerts.medium + d.alerts.low;
     const fleetSize = r.scope.vehicles;
@@ -465,12 +466,10 @@
       .map(
         (t) => `
       <div class="rp-kpi">
+        ${t.spark && r.period.days > 1 ? sparkline(t.spark) : ''}
         <div class="rp-kpi-label">${escapeHtml(t.label)}</div>
         <div class="rp-kpi-value">${t.value}</div>
-        <div class="rp-kpi-foot">
-          ${deltaChip(t.delta, { prevLabel, incomplete: r.period.comparisonComplete === false })}
-          ${t.spark && r.period.days > 1 ? sparkline(t.spark) : ''}
-        </div>
+        <div class="rp-kpi-foot">${deltaChip(t.delta, { prevLabel, incomplete: r.period.comparisonComplete === false })}</div>
         <div class="rp-kpi-sub">${escapeHtml(t.sub)}</div>
       </div>`
       )
