@@ -445,15 +445,32 @@ function tickOrg(orgId, orgState, shouldPersist) {
         });
       }
 
-      const segLenKm = haversineKm(from, to) || 0.0001;
       const kmPerTick = speed * (TICK_MS / 1000 / 3600);
-      v.segT += kmPerTick / segLenKm;
 
-      while (v.segT >= 1) {
-        v.segT -= 1;
-        v.odometerKm += segLenKm;
-        v.segIndex = (v.segIndex + 1) % route.length;
-        if (v.segIndex === 0) v.tripCount += 1;
+      // Advance along the route by distance, carrying any leftover into the
+      // next segment in kilometres. (The old version added kmPerTick /
+      // segmentLength to a 0–1 fraction and then stepped one segment per
+      // whole unit, so a zero-length segment — every route's closing point
+      // repeats its first — produced a fraction in the hundreds, skipped
+      // dozens of loops and teleported the vehicle. The spoofing check
+      // flagged those jumps, correctly.)
+      let remainingKm = kmPerTick;
+      for (let guard = 0; remainingKm > 0 && guard < route.length * 2; guard++) {
+        const a = route[v.segIndex];
+        const b = route[(v.segIndex + 1) % route.length];
+        const lenKm = haversineKm(a, b);
+        const leftKm = (1 - v.segT) * lenKm;
+        if (lenKm > 0 && remainingKm < leftKm) {
+          v.segT += remainingKm / lenKm;
+          v.odometerKm += remainingKm;
+          remainingKm = 0;
+        } else {
+          remainingKm -= leftKm;
+          v.odometerKm += leftKm;
+          v.segT = 0;
+          v.segIndex = (v.segIndex + 1) % route.length;
+          if (v.segIndex === 0) v.tripCount += 1;
+        }
       }
 
       const seg2From = route[v.segIndex];
@@ -517,12 +534,7 @@ function deviceReport(v) {
   maybeStartSimulatedFault(v);
   const a = v.anomaly;
   const ignitionOn = v.status !== 'parked';
-  // The simulator's odometer only advances when a whole route segment is
-  // finished; a real device counts continuously, so report progress along
-  // the current segment too.
-  const route = ROUTES[v.route];
-  const segKm = haversineKm(route[v.segIndex], route[(v.segIndex + 1) % route.length]);
-  const odoKm = v.odometerKm + v.segT * segKm + v.odoFaultKm;
+  const odoKm = v.odometerKm + v.odoFaultKm;
   const report = { t: Date.now(), ignitionOn, powerOk: true, powerEvent: false, fix: { lat: v.lat, lng: v.lng, t: Date.now() }, odoKm };
   if (a) {
     if (a.kind === 'spoof') report.fix = { lat: v.lat + a.dLat, lng: v.lng + a.dLng, t: report.t };
