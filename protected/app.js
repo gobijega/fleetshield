@@ -318,6 +318,16 @@ function normStatus(status) {
   return STATUS_GLYPH[status] ? status : 'moving';
 }
 
+// The app's CSP (style-src 'self') silently drops inline style=""
+// attributes in HTML strings, so markers are built as elements and any
+// per-marker styles (heading rotation, group ring) are set through the
+// CSSOM, which CSP allows.
+function htmlToElement(html) {
+  const t = document.createElement('template');
+  t.innerHTML = html.trim();
+  return t.content.firstElementChild;
+}
+
 function vehicleIcon(v) {
   const status = normStatus(v.status);
   const selected = state.selectedId === v.id ? ' is-selected' : '';
@@ -326,12 +336,14 @@ function vehicleIcon(v) {
   const tag = plate
     ? `<span class="vm-plate">${escapeHtml(plate)}</span>`
     : `<span class="vm-plate vm-plate--missing">${escapeHtml(v.label)}</span>`;
+  const node = htmlToElement(`<div class="vm vm--${status}${selected}${degraded}">
+        <div class="vm-pin"><div class="vm-glyph">${STATUS_GLYPH[status]}</div></div>
+        ${tag}
+      </div>`);
+  node.querySelector('.vm-glyph').style.transform = `rotate(${status === 'moving' ? v.headingDeg || 0 : 0}deg)`;
   return L.divIcon({
     className: 'vm-wrap',
-    html: `<div class="vm vm--${status}${selected}${degraded}">
-        <div class="vm-pin"><div class="vm-glyph" style="transform: rotate(${status === 'moving' ? v.headingDeg || 0 : 0}deg)">${STATUS_GLYPH[status]}</div></div>
-        ${tag}
-      </div>`,
+    html: node,
     iconSize: [30, 30],
     iconAnchor: [15, 15],
     popupAnchor: [0, -14],
@@ -476,7 +488,13 @@ function clusterIcon(n, counts) {
   const size = n >= 50 ? 48 : n >= 10 ? 42 : 36;
   return L.divIcon({
     className: 'vm-wrap',
-    html: `<div class="vc" style="--vc-ring: ${ring}; width:${size}px; height:${size}px"><span class="vc-count">${n}</span></div>`,
+    html: (() => {
+      const node = htmlToElement(`<div class="vc"><span class="vc-count">${n}</span></div>`);
+      node.style.setProperty('--vc-ring', ring);
+      node.style.width = `${size}px`;
+      node.style.height = `${size}px`;
+      return node;
+    })(),
     iconSize: [size, size],
     iconAnchor: [size / 2, size / 2],
     popupAnchor: [0, -size / 2],
@@ -644,11 +662,12 @@ function renderVehicleList() {
         ? `<span class="vi-warn">${DATA_STATE_LABEL[v.dataState]}</span>`
         : status === 'moving' ? `${v.speedKmh} km/h` : status === 'idling' ? 'Engine on' : 'Ignition off';
     el.innerHTML = `
-      <span class="vi-icon vm--${status}" aria-hidden="true"><span class="vm-pin"><span class="vm-glyph" style="transform: rotate(${status === 'moving' ? v.headingDeg || 0 : 0}deg)">${STATUS_GLYPH[status]}</span></span></span>
+      <span class="vi-icon vm--${status}" aria-hidden="true"><span class="vm-pin"><span class="vm-glyph">${STATUS_GLYPH[status]}</span></span></span>
       <span class="vi-main">
         <span class="vi-row1">${plateBadge(v)}<span class="vi-status">${v.dataState && v.dataState !== 'ok' ? detail : `${STATUS_LABEL[status]} · ${detail}`}</span></span>
         <span class="vi-row2">${escapeHtml(v.label)}${v.driver ? ` · ${escapeHtml(v.driver)}` : ''}</span>
       </span>`;
+    el.querySelector('.vm-glyph').style.transform = `rotate(${status === 'moving' ? v.headingDeg || 0 : 0}deg)`;
     el.addEventListener('click', () => selectVehicle(v.id));
     container.appendChild(el);
   }
