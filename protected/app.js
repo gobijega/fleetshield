@@ -223,7 +223,7 @@ function addBaseLayer(cartoKey) {
   if (cartoKey) {
     L.tileLayer(
       `https://basemaps.cartocdn.com/rastertiles/dark_all/{z}/{x}/{y}{r}.png?key=${encodeURIComponent(cartoKey)}`,
-      { ...common, attribution: '&copy; OpenStreetMap contributors &copy; CARTO' }
+      { ...common, className: 'tiles-stealth', attribution: '&copy; OpenStreetMap contributors &copy; CARTO' }
     ).addTo(map);
   } else {
     L.tileLayer('https://tile.openstreetmap.org/{z}/{x}/{y}.png', {
@@ -422,13 +422,16 @@ function renderGeofences() {
   for (const layer of state.geofenceLayers.values()) map.removeLayer(layer);
   state.geofenceLayers.clear();
   for (const gf of state.geofences) {
-    const color = gf.type === 'restricted' ? '#ef5757' : gf.type === 'depot' ? '#35c26f' : '#4f8cff';
+    // Stealth palette: depots in dim phosphor, restricted zones in brand
+    // red, custom zones in tactical sand; dashed outlines, faint fill.
+    const color = gf.type === 'restricted' ? '#ff4d5e' : gf.type === 'depot' ? '#0f9a3a' : '#c8b46a';
     const circle = L.circle([gf.lat, gf.lng], {
       radius: gf.radiusM,
       color,
       fillColor: color,
-      fillOpacity: 0.08,
-      weight: 1.5,
+      fillOpacity: 0.06,
+      weight: 1.2,
+      dashArray: '4 4',
     }).addTo(map);
     circle.bindTooltip(gf.name, { permanent: false });
     state.geofenceLayers.set(gf.id, circle);
