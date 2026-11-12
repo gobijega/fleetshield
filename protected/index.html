@@ -36,6 +36,7 @@
 <nav class="tabs">
   <button class="tab-btn active" data-tab="map">Live Map</button>
   <button class="tab-btn" data-tab="alerts">Alerts <span class="badge" id="alertCount">0</span></button>
+  <button class="tab-btn" data-tab="assurance">Assurance</button>
   <button class="tab-btn" data-tab="reports">Reports</button>
   <button class="tab-btn" data-tab="fleet">Fleet &amp; Billing</button>
   <button class="tab-btn" data-tab="geofences">Geofencing</button>
@@ -90,6 +91,45 @@
         <tbody id="alertRows"></tbody>
       </table>
     </div>
+  </section>
+
+  <section id="tab-assurance" class="tab-panel">
+    <div class="panel-header">
+      <div>
+        <h2>Data assurance</h2>
+        <p class="hint as-intro">Whether each vehicle's telematics data can be trusted: GPS spoofing and jamming, tracker tampering, odometer integrity and after-hours use. These are separate from driver safety events and don't affect safety scores.</p>
+      </div>
+      <a class="as-btn" id="asAuditExport" href="/api/audit.csv" download>Export audit log (CSV)</a>
+    </div>
+    <p class="as-sim" id="asSimNote" hidden>Demonstration: the simulated tracking devices occasionally inject faults (spoofed fixes, jammed periods, power cuts, odometer steps) so the checks can be seen working. The checks only see what a device reports, as they would with real hardware.</p>
+    <div class="cards" id="asCards"></div>
+    <div class="alert-table-wrap">
+      <table class="alert-table">
+        <thead>
+          <tr><th>Numberplate</th><th>Vehicle</th><th>Data trust</th><th>Device</th><th>Events (24 h)</th><th>Last event</th><th>Evidence</th></tr>
+        </thead>
+        <tbody id="asRows"></tbody>
+      </table>
+    </div>
+    <h3 class="as-h3">Recent assurance events</h3>
+    <div class="alert-table-wrap">
+      <table class="alert-table">
+        <thead><tr><th>Time</th><th>Vehicle</th><th>Check</th><th>Severity</th><th>Detail</th></tr></thead>
+        <tbody id="asRecent"></tbody>
+      </table>
+    </div>
+    <details class="rp-method as-method">
+      <summary>How these checks work</summary>
+      <dl id="asMethod">
+        <dt>GPS spoofing</dt><dd>Flags a reported position that no road vehicle could reach from its last trusted position (implied speed above <span data-as="maxPlausibleKmh"></span> km/h). The suspect fix is not trusted for later checks.</dd>
+        <dt>GPS jamming</dt><dd>Flags no position fix for more than <span data-as="signalLossSec"></span> seconds while the ignition is on and the device is powered.</dd>
+        <dt>Device tampering</dt><dd>Flags a tracking device reporting its main power disconnected while the ignition is on.</dd>
+        <dt>Odometer integrity</dt><dd>Compares odometer distance with GPS distance every minute; flags differences over 1.5 km and 15%, including rollbacks.</dd>
+        <dt>After-hours movement</dt><dd>Flags a trip starting from parked outside operating hours (<span data-as="hours"></span>, <span data-as="tz"></span>).</dd>
+        <dt>Data trust score</dt><dd>100 minus a penalty for each data-quality event in the last 24 hours (spoofing 15, jamming 8, tampering 25, odometer 12). After-hours movement doesn't reduce it.</dd>
+        <dt>Evidence export</dt><dd>A vehicle's position history as CSV, where each row carries a SHA-256 hash chained to the row before it. The final hash is recorded in the audit log at export time. Any later edit, insertion or deletion can be detected with <code>scripts/verify-evidence.js</code>. This shows the file is unchanged since export; it does not by itself prove the telemetry was accurate.</dd>
+      </dl>
+    </details>
   </section>
 
   <section id="tab-reports" class="tab-panel">

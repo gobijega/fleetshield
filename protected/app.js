@@ -59,6 +59,7 @@ function plateBadge(v, extraClass = '') {
 }
 
 const STATUS_LABEL = { moving: 'Travelling', idling: 'Idling', parked: 'Parked' };
+const DATA_STATE_LABEL = { ok: 'GPS OK', signal_lost: 'GPS signal lost', power_lost: 'Device offline' };
 
 const state = {
   vehicles: new Map(),
@@ -85,6 +86,7 @@ document.querySelectorAll('.tab-btn').forEach((btn) => {
     if (btn.dataset.tab === 'compliance') loadCompliance();
     if (btn.dataset.tab === 'fleet') loadFleetTab();
     if (btn.dataset.tab === 'import') loadImportHistory();
+    if (btn.dataset.tab === 'assurance') loadAssurance();
     document.body.classList.toggle('map-mode', btn.dataset.tab === 'map');
     if (btn.dataset.tab === 'map') setTimeout(() => map.invalidateSize(), 50);
   });
@@ -319,13 +321,14 @@ function normStatus(status) {
 function vehicleIcon(v) {
   const status = normStatus(v.status);
   const selected = state.selectedId === v.id ? ' is-selected' : '';
+  const degraded = v.dataState && v.dataState !== 'ok' ? ' vm--degraded' : '';
   const plate = plateOf(v);
   const tag = plate
     ? `<span class="vm-plate">${escapeHtml(plate)}</span>`
     : `<span class="vm-plate vm-plate--missing">${escapeHtml(v.label)}</span>`;
   return L.divIcon({
     className: 'vm-wrap',
-    html: `<div class="vm vm--${status}${selected}">
+    html: `<div class="vm vm--${status}${selected}${degraded}">
         <div class="vm-pin"><div class="vm-glyph" style="transform: rotate(${status === 'moving' ? v.headingDeg || 0 : 0}deg)">${STATUS_GLYPH[status]}</div></div>
         ${tag}
       </div>`,
@@ -347,6 +350,7 @@ function popupHtml(v) {
       <dt>Fuel</dt><dd>${escapeHtml((v.fuelType || '').toUpperCase())} · ${v.co2Kg} kg CO₂</dd>
       <dt>Utilisation</dt><dd>${v.utilisationPct}%</dd>
       <dt>Safety</dt><dd>${v.safetyScore}</dd>
+      <dt>Data trust</dt><dd>${v.trustScore ?? '—'} <span class="vp-muted">· ${DATA_STATE_LABEL[v.dataState] || 'GPS OK'}</span></dd>
     </dl>
   </div>`;
 }
@@ -358,7 +362,7 @@ function markerVisible(v) {
 function upsertMarker(v) {
   let marker = state.markers.get(v.id);
   const status = normStatus(v.status);
-  const iconKey = `${status}|${v.plate || ''}|${v.label}|${state.selectedId === v.id}`;
+  const iconKey = `${status}|${v.plate || ''}|${v.label}|${state.selectedId === v.id}|${v.dataState || 'ok'}`;
   if (!marker) {
     marker = L.marker([v.lat, v.lng], {
       icon: vehicleIcon(v),
@@ -636,11 +640,13 @@ function renderVehicleList() {
     el.type = 'button';
     el.className = `vehicle-item vi--${status}${state.selectedId === v.id ? ' is-selected' : ''}`;
     const detail =
-      status === 'moving' ? `${v.speedKmh} km/h` : status === 'idling' ? 'Engine on' : 'Ignition off';
+      v.dataState && v.dataState !== 'ok'
+        ? `<span class="vi-warn">${DATA_STATE_LABEL[v.dataState]}</span>`
+        : status === 'moving' ? `${v.speedKmh} km/h` : status === 'idling' ? 'Engine on' : 'Ignition off';
     el.innerHTML = `
       <span class="vi-icon vm--${status}" aria-hidden="true"><span class="vm-pin"><span class="vm-glyph" style="transform: rotate(${status === 'moving' ? v.headingDeg || 0 : 0}deg)">${STATUS_GLYPH[status]}</span></span></span>
       <span class="vi-main">
-        <span class="vi-row1">${plateBadge(v)}<span class="vi-status">${STATUS_LABEL[status]} · ${detail}</span></span>
+        <span class="vi-row1">${plateBadge(v)}<span class="vi-status">${v.dataState && v.dataState !== 'ok' ? detail : `${STATUS_LABEL[status]} · ${detail}`}</span></span>
         <span class="vi-row2">${escapeHtml(v.label)}${v.driver ? ` · ${escapeHtml(v.driver)}` : ''}</span>
       </span>`;
     el.addEventListener('click', () => selectVehicle(v.id));
@@ -687,6 +693,71 @@ document.getElementById('alertFilter').addEventListener('change', (e) => {
 // ---------------------------------------------------------------------------
 // Reports — see reports.js (window.loadReports).
 // ---------------------------------------------------------------------------
+
+// ---------------------------------------------------------------------------
+// Assurance
+// ---------------------------------------------------------------------------
+function trustClass(score) {
+  return score >= 85 ? 'good' : score >= 60 ? 'medium' : 'high';
+}
+
+async function loadAssurance() {
+  const rowsEl = document.getElementById('asRows');
+  let data;
+  try {
+    const res = await authedFetch('/api/assurance');
+    if (!res.ok) throw new Error('failed');
+    data = await res.json();
+  } catch (err) {
+    rowsEl.innerHTML = '<tr><td colspan="7" class="hint error">Could not load assurance data.</td></tr>';
+    return;
+  }
+  const { settings, labels, fleetCounts, vehicles, recent } = data;
+  document.getElementById('asSimNote').hidden = !settings.simulatedFaults;
+  const fill = { maxPlausibleKmh: settings.maxPlausibleKmh, signalLossSec: settings.signalLossSec, hours: `${settings.operatingHours.start}:00–${settings.operatingHours.end}:00`, tz: settings.timeZone };
+  document.querySelectorAll('#asMethod [data-as]').forEach((el) => { el.textContent = fill[el.dataset.as]; });
+
+  const avg = vehicles.length ? Math.round(vehicles.reduce((s, v) => s + v.trustScore, 0) / vehicles.length) : 100;
+  const card = (value, label, extra = '') => `<div class="card ${extra}"><div class="value">${value}</div><div class="label">${escapeHtml(label)}</div></div>`;
+  document.getElementById('asCards').innerHTML =
+    card(avg, 'Fleet data trust (avg)', `as-trust as-trust--${trustClass(avg)}`) +
+    ['gps_jump', 'gps_signal_loss', 'device_tamper', 'odometer_mismatch', 'after_hours_movement']
+      .map((t) => card(fleetCounts[t] || 0, `${labels[t]} · 24 h`))
+      .join('');
+
+  const sorted = vehicles.slice().sort((a, b) => a.trustScore - b.trustScore || (a.plate || a.label).localeCompare(b.plate || b.label));
+  rowsEl.innerHTML = sorted
+    .map((v) => {
+      const counts = Object.entries(v.counts)
+        .map(([t, n]) => `<span class="as-chip" title="${escapeHtml(labels[t] || t)}">${escapeHtml((labels[t] || t).replace(/ \(.*\)/, ''))} ×${n}</span>`)
+        .join(' ') || '<span class="hint">None</span>';
+      return `<tr>
+        <td>${plateBadge(v)}</td>
+        <td>${escapeHtml(v.label)}</td>
+        <td><span class="sev sev-${trustClass(v.trustScore)}">${v.trustScore}</span></td>
+        <td>${escapeHtml(DATA_STATE_LABEL[v.dataState] || 'GPS OK')}</td>
+        <td>${counts}</td>
+        <td>${v.lastEventAt ? new Date(v.lastEventAt).toLocaleString() : '—'}</td>
+        <td><a class="as-link" href="/api/vehicles/${encodeURIComponent(v.id)}/evidence.csv?hours=24" download>Last 24 h (CSV)</a></td>
+      </tr>`;
+    })
+    .join('');
+
+  document.getElementById('asRecent').innerHTML = recent.length
+    ? recent
+        .map((a) => {
+          const v = state.vehicles.get(a.vehicleId);
+          return `<tr>
+            <td>${new Date(a.t).toLocaleString()}</td>
+            <td>${v ? plateBadge(v) : '—'}</td>
+            <td>${escapeHtml(labels[a.type] || a.type)}</td>
+            <td><span class="sev sev-${escapeHtml(a.severity)}">${escapeHtml(a.severity)}</span></td>
+            <td>${escapeHtml(a.message || '')}</td>
+          </tr>`;
+        })
+        .join('')
+    : '<tr><td colspan="5" class="hint">No assurance events yet.</td></tr>';
+}
 
 // ---------------------------------------------------------------------------
 // Compliance

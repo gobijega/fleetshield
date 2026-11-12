@@ -51,6 +51,8 @@ const orgs = require('./lib/organizations');
 const billing = require('./lib/billing');
 const { runCsvImport } = require('./lib/ingestion/import-service');
 const reports = require('./lib/reports');
+const assurance = require('./lib/assurance');
+const evidence = require('./lib/evidence');
 
 const PORT = process.env.PORT || 3000;
 const TICK_MS = 2000; // simulation heartbeat
@@ -110,8 +112,10 @@ function getOrgState(orgId) {
 const ALERT_SEVERITY_WEIGHT = { high: 8, medium: 4, low: 1, info: 0 };
 
 function safetyScore(orgState, vehicleId) {
+  // Data-assurance events (jamming, spoofing, tampering…) say nothing
+  // about how the vehicle was driven, so they don't count against safety.
   const weight = orgState.alerts
-    .filter((a) => a.vehicleId === vehicleId)
+    .filter((a) => a.vehicleId === vehicleId && !assurance.ASSURANCE_TYPES.includes(a.type))
     .reduce((s, a) => s + (ALERT_SEVERITY_WEIGHT[a.severity] || 0), 0);
   return Math.max(0, 100 - weight);
 }
@@ -215,12 +219,17 @@ async function initVehiclesForOrg(orgId, vehicleConfigs) {
   for (const v of vehicleConfigs) {
     const route = ROUTES[v.route];
     const last = await restoreLatestPosition(v.id);
+    // Start at a random point along the first segment, and put the vehicle
+    // actually there — previously it sat at route[0] until its first move,
+    // then teleported, which the spoofing check rightly flagged.
+    const segT = Math.random();
+    const start = lerp(route[0], route[1 % route.length], segT);
     orgState.vehicles.set(v.id, {
       ...v,
       segIndex: 0,
-      segT: Math.random(),
-      lat: route[0].lat,
-      lng: route[0].lng,
+      segT,
+      lat: start.lat,
+      lng: start.lng,
       speedKmh: 0,
       headingDeg: 0,
       status: 'moving',
@@ -236,6 +245,16 @@ async function initVehiclesForOrg(orgId, vehicleConfigs) {
       movingSec: last ? Number(last.moving_sec_total) : 0,
       idlingSec: last ? Number(last.idling_sec_total) : 0,
       tripCount: last ? last.trip_count : 0,
+      // Simulated tracking-device layer + assurance state (see runAssurance)
+      anomaly: null,
+      odoFaultKm: 0,
+      fix: null, // last fix the device reported (what the map shows)
+      trustedFix: null, // last fix that passed the plausibility check
+      lastFixAt: null,
+      odoWindow: null, // { startOdoKm, gpsKm, ticks }
+      dataState: 'ok', // 'ok' | 'signal_lost' | 'power_lost'
+      signalAlerted: false,
+      lastAfterHoursAt: 0,
     });
   }
 }
@@ -333,128 +352,265 @@ async function persistImportedPositions(orgId, rows) {
 function tickOrg(orgId, orgState, shouldPersist) {
   const positionRows = [];
 
-  for (const v of orgState.vehicles.values()) {
-    const route = ROUTES[v.route];
-    const from = route[v.segIndex];
-    const to = route[(v.segIndex + 1) % route.length];
+  // One vehicle's simulated movement for this tick (the "truth"). The
+  // simulated tracking device then reports on it, and the assurance checks
+  // run only on that report — see runAssurance().
+  const stepVehicle = (v) => {
+      const route = ROUTES[v.route];
+      const from = route[v.segIndex];
+      const to = route[(v.segIndex + 1) % route.length];
 
-    // Parked: ignition off at the depot. No speed, no fuel, no engine time —
-    // distinct from idling (engine on, stationary), which burns fuel.
-    if (v.parkTicks > 0) {
-      v.parkTicks -= 1;
-      v.status = 'parked';
-      v.speedKmh = 0;
-      v.updatedAt = nowIso();
-      if (shouldPersist) positionRows.push(snapshotRow(v));
-      continue;
-    }
-
-    if (v.segIndex === 0 && v.segT < 0.02) {
-      if (v.idleTicks < 3) {
-        v.idleTicks += 1;
-        v.status = 'idling';
+      // Parked: ignition off at the depot. No speed, no fuel, no engine time —
+      // distinct from idling (engine on, stationary), which burns fuel.
+      if (v.parkTicks > 0) {
+        v.parkTicks -= 1;
+        v.status = 'parked';
         v.speedKmh = 0;
         v.updatedAt = nowIso();
-        v.idlingSec += TICK_MS / 1000;
-        const idleFuel = v.idleRatePerHour * (TICK_MS / 3600000);
-        v.fuelUsedTotal += idleFuel;
-        v.co2KgTotal += idleFuel * EMISSION_FACTORS_KG[v.fuelType];
         if (shouldPersist) positionRows.push(snapshotRow(v));
-        if (v.idleTicks === 3) {
-          pushAlert(orgId, orgState, {
-            type: 'excessive_idling',
-            severity: 'low',
-            vehicleId: v.id,
-            vehicleLabel: v.label,
-            message: `${v.label} idled for over ${v.idleTicks * (TICK_MS / 1000)}s at depot`,
-            lat: v.lat,
-            lng: v.lng,
-          });
-          // After warming up at the depot, some runs end with the vehicle
-          // switched off and parked for a while before the next loop.
-          if (Math.random() < PARK_CHANCE) {
-            v.parkTicks = PARK_MIN_TICKS + Math.floor(Math.random() * (PARK_MAX_TICKS - PARK_MIN_TICKS));
-          }
-        }
-        continue;
+        return;
       }
-      v.idleTicks = 0;
-    }
-    v.status = 'moving';
 
-    const variance = (Math.random() - 0.5) * 12;
-    let speed = Math.max(5, v.baseSpeed + variance);
+      if (v.segIndex === 0 && v.segT < 0.02) {
+        if (v.idleTicks < 3) {
+          v.idleTicks += 1;
+          v.status = 'idling';
+          v.speedKmh = 0;
+          v.updatedAt = nowIso();
+          v.idlingSec += TICK_MS / 1000;
+          const idleFuel = v.idleRatePerHour * (TICK_MS / 3600000);
+          v.fuelUsedTotal += idleFuel;
+          v.co2KgTotal += idleFuel * EMISSION_FACTORS_KG[v.fuelType];
+          if (shouldPersist) positionRows.push(snapshotRow(v));
+          if (v.idleTicks === 3) {
+            pushAlert(orgId, orgState, {
+              type: 'excessive_idling',
+              severity: 'low',
+              vehicleId: v.id,
+              vehicleLabel: v.label,
+              message: `${v.label} idled for over ${v.idleTicks * (TICK_MS / 1000)}s at depot`,
+              lat: v.lat,
+              lng: v.lng,
+            });
+            // After warming up at the depot, some runs end with the vehicle
+            // switched off and parked for a while before the next loop.
+            if (Math.random() < PARK_CHANCE) {
+              v.parkTicks = PARK_MIN_TICKS + Math.floor(Math.random() * (PARK_MAX_TICKS - PARK_MIN_TICKS));
+            }
+          }
+          return;
+        }
+        v.idleTicks = 0;
+      }
+      v.status = 'moving';
 
-    const roll = Math.random();
-    if (roll < 0.025) {
-      const prevSpeed = speed;
-      speed = Math.max(5, speed * 0.35);
-      pushAlert(orgId, orgState, {
-        type: 'harsh_braking',
-        severity: 'medium',
-        vehicleId: v.id,
-        vehicleLabel: v.label,
-        message: `${v.label} harsh braking event (${Math.round(prevSpeed)} → ${Math.round(speed)} km/h)`,
-        lat: v.lat,
-        lng: v.lng,
-      });
-    } else if (roll > 0.975) {
-      speed = speed * 1.4;
-      pushAlert(orgId, orgState, {
-        type: 'harsh_acceleration',
-        severity: 'medium',
-        vehicleId: v.id,
-        vehicleLabel: v.label,
-        message: `${v.label} harsh acceleration event (${Math.round(speed)} km/h)`,
-        lat: v.lat,
-        lng: v.lng,
-      });
-    }
+      const variance = (Math.random() - 0.5) * 12;
+      let speed = Math.max(5, v.baseSpeed + variance);
 
-    if (speed > v.speedLimit * 1.15) {
-      pushAlert(orgId, orgState, {
-        type: 'speeding',
-        severity: 'high',
-        vehicleId: v.id,
-        vehicleLabel: v.label,
-        message: `${v.label} speeding: ${Math.round(speed)} km/h in a ${v.speedLimit} km/h zone`,
-        lat: v.lat,
-        lng: v.lng,
-      });
-    }
+      const roll = Math.random();
+      if (roll < 0.025) {
+        const prevSpeed = speed;
+        speed = Math.max(5, speed * 0.35);
+        pushAlert(orgId, orgState, {
+          type: 'harsh_braking',
+          severity: 'medium',
+          vehicleId: v.id,
+          vehicleLabel: v.label,
+          message: `${v.label} harsh braking event (${Math.round(prevSpeed)} → ${Math.round(speed)} km/h)`,
+          lat: v.lat,
+          lng: v.lng,
+        });
+      } else if (roll > 0.975) {
+        speed = speed * 1.4;
+        pushAlert(orgId, orgState, {
+          type: 'harsh_acceleration',
+          severity: 'medium',
+          vehicleId: v.id,
+          vehicleLabel: v.label,
+          message: `${v.label} harsh acceleration event (${Math.round(speed)} km/h)`,
+          lat: v.lat,
+          lng: v.lng,
+        });
+      }
 
-    const segLenKm = haversineKm(from, to) || 0.0001;
-    const kmPerTick = speed * (TICK_MS / 1000 / 3600);
-    v.segT += kmPerTick / segLenKm;
+      if (speed > v.speedLimit * 1.15) {
+        pushAlert(orgId, orgState, {
+          type: 'speeding',
+          severity: 'high',
+          vehicleId: v.id,
+          vehicleLabel: v.label,
+          message: `${v.label} speeding: ${Math.round(speed)} km/h in a ${v.speedLimit} km/h zone`,
+          lat: v.lat,
+          lng: v.lng,
+        });
+      }
 
-    while (v.segT >= 1) {
-      v.segT -= 1;
-      v.odometerKm += segLenKm;
-      v.segIndex = (v.segIndex + 1) % route.length;
-      if (v.segIndex === 0) v.tripCount += 1;
-    }
+      const segLenKm = haversineKm(from, to) || 0.0001;
+      const kmPerTick = speed * (TICK_MS / 1000 / 3600);
+      v.segT += kmPerTick / segLenKm;
 
-    const seg2From = route[v.segIndex];
-    const seg2To = route[(v.segIndex + 1) % route.length];
-    const pos = lerp(seg2From, seg2To, v.segT);
-    v.headingDeg =
-      (Math.atan2(seg2To.lng - seg2From.lng, seg2To.lat - seg2From.lat) * 180) / Math.PI;
-    v.lat = pos.lat;
-    v.lng = pos.lng;
-    v.speedKmh = Math.round(speed);
-    v.updatedAt = nowIso();
-    v.movingSec += TICK_MS / 1000;
+      while (v.segT >= 1) {
+        v.segT -= 1;
+        v.odometerKm += segLenKm;
+        v.segIndex = (v.segIndex + 1) % route.length;
+        if (v.segIndex === 0) v.tripCount += 1;
+      }
 
-    const fuelUsed = kmPerTick * (v.consumptionPer100 / 100);
-    v.fuelUsedTotal += fuelUsed;
-    v.co2KgTotal += fuelUsed * EMISSION_FACTORS_KG[v.fuelType];
+      const seg2From = route[v.segIndex];
+      const seg2To = route[(v.segIndex + 1) % route.length];
+      const pos = lerp(seg2From, seg2To, v.segT);
+      v.headingDeg =
+        (Math.atan2(seg2To.lng - seg2From.lng, seg2To.lat - seg2From.lat) * 180) / Math.PI;
+      v.lat = pos.lat;
+      v.lng = pos.lng;
+      v.speedKmh = Math.round(speed);
+      v.updatedAt = nowIso();
+      v.movingSec += TICK_MS / 1000;
 
-    if (shouldPersist) positionRows.push(snapshotRow(v));
-    checkGeofences(orgId, orgState, v);
+      const fuelUsed = kmPerTick * (v.consumptionPer100 / 100);
+      v.fuelUsedTotal += fuelUsed;
+      v.co2KgTotal += fuelUsed * EMISSION_FACTORS_KG[v.fuelType];
+
+      if (shouldPersist) positionRows.push(snapshotRow(v));
+      checkGeofences(orgId, orgState, v);
+  };
+
+  for (const v of orgState.vehicles.values()) {
+    const prevStatus = v.status;
+    stepVehicle(v);
+    runAssurance(orgId, orgState, v, prevStatus);
   }
 
   if (shouldPersist) persistPositions(orgId, positionRows);
   broadcast(orgId, { type: 'positions', vehicles: serializeVehicles(orgState) });
+}
+
+// ---------------------------------------------------------------------------
+// Data assurance (lib/assurance.js)
+//
+// The simulator stands in for a vehicle tracking device: each tick it
+// produces the report a device would send (position fix, ignition, main
+// power, odometer). To demonstrate the checks, it occasionally injects a
+// SIMULATED fault into that report — a spoofed fix, a jammed period with
+// no fixes, a device power cut, or an odometer step. The checks below never
+// look at the injected fault, only at the report, exactly as they would
+// with a real device feed. Set ASSURANCE_SIM_RATE=0 to turn injection off.
+// ---------------------------------------------------------------------------
+const ASSURANCE_SIM_RATE = Number(process.env.ASSURANCE_SIM_RATE ?? 1 / 2500); // per vehicle per tick
+const ODO_WINDOW_TICKS = 30; // compare odometer vs GPS distance every 60 s
+const AFTER_HOURS_COOLDOWN_MS = 2 * 3600 * 1000;
+const ASSURANCE_OPTS = { ...assurance.DEFAULTS, timeZone: reports.reportTimeZone ? reports.reportTimeZone() : assurance.DEFAULTS.timeZone };
+const ASSURANCE_TYPE_SET = new Set(assurance.ASSURANCE_TYPES);
+
+function maybeStartSimulatedFault(v) {
+  if (v.anomaly || v.status !== 'moving' || !(Math.random() < ASSURANCE_SIM_RATE)) return;
+  const kind = ['spoof', 'jam', 'power', 'odometer'][Math.floor(Math.random() * 4)];
+  const sign = () => (Math.random() < 0.5 ? -1 : 1);
+  if (kind === 'spoof') v.anomaly = { kind, ticks: 1, dLat: sign() * (0.08 + Math.random() * 0.12), dLng: sign() * (0.08 + Math.random() * 0.12) };
+  if (kind === 'jam') v.anomaly = { kind, ticks: 35 + Math.floor(Math.random() * 30) }; // ~70–130 s
+  if (kind === 'power') v.anomaly = { kind, ticks: 45 + Math.floor(Math.random() * 45), announced: false }; // ~1.5–3 min
+  if (kind === 'odometer') v.odoFaultKm += sign() * (3 + Math.random() * 6); // one-off step in the reported odometer
+}
+
+// What the tracking device sends this tick.
+function deviceReport(v) {
+  maybeStartSimulatedFault(v);
+  const a = v.anomaly;
+  const ignitionOn = v.status !== 'parked';
+  // The simulator's odometer only advances when a whole route segment is
+  // finished; a real device counts continuously, so report progress along
+  // the current segment too.
+  const route = ROUTES[v.route];
+  const segKm = haversineKm(route[v.segIndex], route[(v.segIndex + 1) % route.length]);
+  const odoKm = v.odometerKm + v.segT * segKm + v.odoFaultKm;
+  const report = { t: Date.now(), ignitionOn, powerOk: true, powerEvent: false, fix: { lat: v.lat, lng: v.lng, t: Date.now() }, odoKm };
+  if (a) {
+    if (a.kind === 'spoof') report.fix = { lat: v.lat + a.dLat, lng: v.lng + a.dLng, t: report.t };
+    if (a.kind === 'jam') report.fix = null;
+    if (a.kind === 'power') {
+      report.fix = null;
+      report.powerOk = false;
+      report.powerEvent = !a.announced; // device's last-gasp "main power lost" message
+      a.announced = true;
+    }
+    a.ticks -= 1;
+    if (a.ticks <= 0) v.anomaly = null;
+  }
+  return report;
+}
+
+function assuranceAlert(orgId, orgState, v, type, severity, message, at) {
+  pushAlert(orgId, orgState, {
+    type,
+    severity,
+    vehicleId: v.id,
+    vehicleLabel: v.label,
+    message: `${v.plate || v.label}: ${message}`,
+    lat: at ? at.lat : v.lat,
+    lng: at ? at.lng : v.lng,
+  });
+}
+
+function runAssurance(orgId, orgState, v, prevStatus) {
+  const r = deviceReport(v);
+
+  // Device tamper: main power cut while the ignition is on.
+  if (r.powerEvent && r.ignitionOn) {
+    assuranceAlert(orgId, orgState, v, 'device_tamper', 'high', 'tracking device reported main power disconnected with ignition on', v.fix);
+  }
+
+  if (r.fix) {
+    // Spoofing: a fix no road vehicle could reach from the last trusted fix.
+    const jump = assurance.detectJump(v.trustedFix, r.fix, ASSURANCE_OPTS);
+    if (jump) {
+      assuranceAlert(
+        orgId, orgState, v, 'gps_jump', 'high',
+        `reported position jumped ${jump.distanceKm.toFixed(1)} km (implies ${Math.round(jump.impliedKmh)} km/h) — possible GPS spoofing`,
+        r.fix
+      );
+    } else {
+      if (v.trustedFix && v.odoWindow) v.odoWindow.gpsKm += assurance.haversineKm(v.trustedFix, r.fix);
+      v.trustedFix = r.fix;
+    }
+    v.fix = r.fix;
+    v.lastFixAt = r.t;
+    v.signalAlerted = false;
+    v.dataState = 'ok';
+  } else {
+    v.dataState = r.powerOk ? 'signal_lost' : 'power_lost';
+    // Jamming: ignition on, device powered, but no fix for too long.
+    if (r.powerOk && !v.signalAlerted && assurance.isSignalLost({ lastFixAt: v.lastFixAt, ignitionOn: r.ignitionOn, now: r.t }, ASSURANCE_OPTS)) {
+      v.signalAlerted = true;
+      assuranceAlert(orgId, orgState, v, 'gps_signal_loss', 'medium', `no GPS fix for over ${ASSURANCE_OPTS.signalLossSec}s with ignition on — possible jamming`, v.fix);
+    }
+  }
+
+  // Odometer vs GPS distance, over rolling one-minute windows.
+  if (!v.odoWindow) v.odoWindow = { startOdoKm: r.odoKm, gpsKm: 0, ticks: 0 };
+  v.odoWindow.ticks += 1;
+  if (v.odoWindow.ticks >= ODO_WINDOW_TICKS && r.fix) {
+    const mismatch = assurance.detectOdometerMismatch(r.odoKm - v.odoWindow.startOdoKm, v.odoWindow.gpsKm, ASSURANCE_OPTS);
+    if (mismatch) {
+      assuranceAlert(
+        orgId, orgState, v, 'odometer_mismatch', 'medium',
+        mismatch.odoKm < 0
+          ? `odometer went backwards ${Math.abs(mismatch.odoKm).toFixed(1)} km while GPS shows ${mismatch.gpsKm.toFixed(1)} km travelled — possible odometer rollback`
+          : `odometer advanced ${mismatch.odoKm.toFixed(1)} km while GPS shows ${mismatch.gpsKm.toFixed(1)} km — possible odometer tampering or device fault`
+      );
+    }
+    v.odoWindow = { startOdoKm: r.odoKm, gpsKm: 0, ticks: 0 };
+  }
+
+  // After-hours use: a trip starting from parked outside operating hours.
+  if (prevStatus === 'parked' && v.status !== 'parked' && assurance.isOutsideOperatingHours(r.t, ASSURANCE_OPTS) && r.t - v.lastAfterHoursAt > AFTER_HOURS_COOLDOWN_MS) {
+    v.lastAfterHoursAt = r.t;
+    const { start, end } = ASSURANCE_OPTS.operatingHours;
+    assuranceAlert(orgId, orgState, v, 'after_hours_movement', 'medium', `started a trip outside operating hours (${start}:00–${end}:00)`);
+  }
+}
+
+function vehicleTrustScore(orgState, vehicleId) {
+  return assurance.trustScore(orgState.alerts.filter((a) => a.vehicleId === vehicleId && ASSURANCE_TYPE_SET.has(a.type)));
 }
 
 function tick() {
@@ -491,10 +647,14 @@ function serializeVehicles(orgState) {
       plate: v.plate || null,
       label: v.label,
       driver: v.driver,
-      lat: v.lat,
-      lng: v.lng,
+      // The map shows what the device reported, as an operator would see it.
+      lat: v.fix ? v.fix.lat : v.lat,
+      lng: v.fix ? v.fix.lng : v.lng,
       speedKmh: v.speedKmh,
       headingDeg: Math.round(v.headingDeg),
+      dataState: v.dataState,
+      lastFixAt: v.lastFixAt ? new Date(v.lastFixAt).toISOString() : null,
+      trustScore: vehicleTrustScore(orgState, v.id),
       status: v.status,
       speedLimit: v.speedLimit,
       odometerKm: Math.round(v.odometerKm * 10) / 10,
@@ -1277,6 +1437,133 @@ app.get('/api/audit', async (req, res) => {
   } catch (err) {
     console.error(err);
     res.status(500).json({ error: 'query failed' });
+  }
+});
+
+// Audit log as CSV — for procurement evidence and customers' own records.
+app.get('/api/audit.csv', async (req, res) => {
+  const limit = Math.min(parseInt(req.query.limit, 10) || 5000, 50000);
+  try {
+    const { rows } = await db.query(
+      `SELECT ts, event_type, username, ip, success, detail FROM audit_log WHERE org_id = $1 ORDER BY ts DESC LIMIT $2`,
+      [req.orgId, limit]
+    );
+    const esc = (v) => {
+      const str = v == null ? '' : v instanceof Date ? v.toISOString() : String(v);
+      // Neutralise spreadsheet formula injection (cells starting = + - @).
+      const safe = /^[=+\-@]/.test(str) ? `'${str}` : str;
+      return /[",\n]/.test(safe) ? `"${safe.replace(/"/g, '""')}"` : safe;
+    };
+    const csv = ['ts,event_type,username,ip,success,detail', ...rows.map((r) => [r.ts, r.event_type, r.username, r.ip, r.success, r.detail].map(esc).join(','))].join('\n') + '\n';
+    await audit('audit_log_export', { orgId: req.orgId, username: req.session.username, ip: req.ip, detail: `rows=${rows.length}` });
+    res.setHeader('Content-Type', 'text/csv; charset=utf-8');
+    res.setHeader('Content-Disposition', `attachment; filename="fleet-shield-audit-log-${new Date().toISOString().slice(0, 10)}.csv"`);
+    res.send(csv);
+  } catch (err) {
+    console.error(err);
+    res.status(500).json({ error: 'export failed' });
+  }
+});
+
+// Data assurance summary: per-vehicle trust score and the last 24h of
+// assurance events (spoofing, jamming, tampering, odometer, after-hours).
+app.get('/api/assurance', async (req, res) => {
+  const orgState = getOrgState(req.orgId);
+  try {
+    const { rows } = await db.query(
+      `SELECT vehicle_id, type, count(*)::int AS n, max(ts) AS last_ts
+         FROM alerts
+        WHERE org_id = $1 AND type = ANY($2::text[]) AND ts > now() - interval '24 hours'
+        GROUP BY 1, 2`,
+      [req.orgId, assurance.ASSURANCE_TYPES]
+    );
+    const { rows: recent } = await db.query(
+      `SELECT ts, vehicle_id, type, severity, message FROM alerts
+        WHERE org_id = $1 AND type = ANY($2::text[])
+        ORDER BY ts DESC LIMIT 50`,
+      [req.orgId, assurance.ASSURANCE_TYPES]
+    );
+    const byVehicle = new Map();
+    const fleetCounts = Object.fromEntries(assurance.ASSURANCE_TYPES.map((t) => [t, 0]));
+    for (const r of rows) {
+      const entry = byVehicle.get(r.vehicle_id) || { counts: {}, lastTs: null };
+      entry.counts[r.type] = r.n;
+      if (!entry.lastTs || r.last_ts > entry.lastTs) entry.lastTs = r.last_ts;
+      byVehicle.set(r.vehicle_id, entry);
+      fleetCounts[r.type] = (fleetCounts[r.type] || 0) + r.n;
+    }
+    const vehicles = Array.from(orgState.vehicles.values()).map((v) => {
+      const e = byVehicle.get(v.id) || { counts: {}, lastTs: null };
+      const penalty = Object.entries(e.counts).reduce((sum, [t, n]) => sum + (assurance.TRUST_PENALTY[t] || 0) * n, 0);
+      return {
+        id: v.id,
+        plate: v.plate || null,
+        label: v.label,
+        dataState: v.dataState,
+        lastFixAt: v.lastFixAt ? new Date(v.lastFixAt).toISOString() : null,
+        trustScore: Math.max(0, 100 - penalty),
+        counts: e.counts,
+        lastEventAt: e.lastTs,
+      };
+    });
+    res.json({
+      settings: {
+        operatingHours: ASSURANCE_OPTS.operatingHours,
+        timeZone: ASSURANCE_OPTS.timeZone,
+        maxPlausibleKmh: ASSURANCE_OPTS.maxPlausibleKmh,
+        signalLossSec: ASSURANCE_OPTS.signalLossSec,
+        simulatedFaults: ASSURANCE_SIM_RATE > 0,
+      },
+      labels: assurance.ASSURANCE_LABELS,
+      fleetCounts,
+      vehicles,
+      recent: recent.map((r) => ({ t: r.ts, vehicleId: r.vehicle_id, type: r.type, severity: r.severity, message: r.message })),
+    });
+  } catch (err) {
+    console.error(err);
+    res.status(500).json({ error: 'query failed' });
+  }
+});
+
+// Tamper-evident evidence export of a vehicle's position history (see
+// lib/evidence.js). The chain head goes into the audit log so the file can
+// later be verified against what was actually exported.
+app.get('/api/vehicles/:id/evidence.csv', async (req, res) => {
+  const orgState = getOrgState(req.orgId);
+  const v = orgState.vehicles.get(req.params.id);
+  if (!v) return res.status(404).json({ error: 'vehicle not found' });
+  const hours = Math.min(Math.max(parseFloat(req.query.hours) || 24, 1), 168);
+  try {
+    const { rows } = await db.query(
+      `SELECT ts, lat, lng, speed_kmh, heading_deg, status, odometer_km FROM positions
+        WHERE vehicle_id = $1 AND org_id = $2 AND ts > now() - make_interval(hours => $3::int)
+        ORDER BY ts ASC LIMIT 200000`,
+      [v.id, req.orgId, Math.ceil(hours)]
+    );
+    const exportedAt = new Date().toISOString();
+    const { csv, head } = evidence.buildEvidenceCsv(rows, {
+      vehicle_id: v.id,
+      plate: v.plate || '',
+      label: v.label,
+      period_hours: hours,
+      exported_at: exportedAt,
+      exported_by: req.session.username || '',
+      organisation: req.orgId,
+      data_source: 'Fleet Shield simulated demonstration telemetry',
+    });
+    await audit('evidence_export', {
+      orgId: req.orgId,
+      username: req.session.username,
+      ip: req.ip,
+      detail: `${v.id} ${v.plate || v.label} hours=${hours} rows=${rows.length} chain_head=${head}`,
+    });
+    const name = (v.plate || v.id).replace(/[^A-Za-z0-9-]/g, '');
+    res.setHeader('Content-Type', 'text/csv; charset=utf-8');
+    res.setHeader('Content-Disposition', `attachment; filename="evidence-${name}-${exportedAt.slice(0, 10)}.csv"`);
+    res.send(csv);
+  } catch (err) {
+    console.error(err);
+    res.status(500).json({ error: 'export failed' });
   }
 });
 
