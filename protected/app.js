@@ -41,9 +41,31 @@ document.getElementById('logoutBtn').addEventListener('click', async () => {
   window.location.href = '/login.html';
 });
 
+function escapeHtml(str) {
+  return String(str ?? '').replace(/[&<>"']/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]));
+}
+
+// Numberplate is the on-screen identifier for a vehicle everywhere in the
+// app. Vehicles added before plates were recorded fall back to their label
+// until a plate is set on the Fleet & Billing tab.
+function plateOf(v) {
+  return v && v.plate ? v.plate : null;
+}
+function plateBadge(v, extraClass = '') {
+  const plate = plateOf(v);
+  return plate
+    ? `<span class="plate ${extraClass}">${escapeHtml(plate)}</span>`
+    : `<span class="plate plate--missing ${extraClass}" title="No numberplate recorded">NO PLATE</span>`;
+}
+
+const STATUS_LABEL = { moving: 'Travelling', idling: 'Idling', parked: 'Parked' };
+
 const state = {
   vehicles: new Map(),
   markers: new Map(),
+  statusFilter: 'all',
+  search: '',
+  selectedId: null,
   alerts: [],
   geofences: [],
   geofenceLayers: new Map(),
@@ -63,6 +85,7 @@ document.querySelectorAll('.tab-btn').forEach((btn) => {
     if (btn.dataset.tab === 'compliance') loadCompliance();
     if (btn.dataset.tab === 'fleet') loadFleetTab();
     if (btn.dataset.tab === 'import') loadImportHistory();
+    document.body.classList.toggle('map-mode', btn.dataset.tab === 'map');
     if (btn.dataset.tab === 'map') setTimeout(() => map.invalidateSize(), 50);
   });
 });
@@ -172,7 +195,21 @@ document.getElementById('csvImportForm').addEventListener('submit', async (e) =>
 // ---------------------------------------------------------------------------
 // Map setup
 // ---------------------------------------------------------------------------
-const map = L.map('map').setView([-37.8136, 144.9631], 10);
+document.body.classList.add('map-mode');
+// Zoom + attribution sit bottom-left: the right side is taken by the
+// floating fleet panel, which would otherwise cover the OSM attribution.
+const map = L.map('map', { zoomControl: false, attributionControl: false }).setView([-37.8136, 144.9631], 10);
+L.control.zoom({ position: 'bottomleft' }).addTo(map);
+L.control.attribution({ position: 'bottomleft' }).addTo(map);
+
+// Plate tags get crowded when zoomed out to state level; hide them there.
+const PLATE_TAG_MIN_ZOOM = 9;
+function syncPlateTagVisibility() {
+  mapElForZoom.classList.toggle('hide-plate-tags', map.getZoom() < PLATE_TAG_MIN_ZOOM);
+}
+const mapElForZoom = document.getElementById('map');
+map.on('zoomend', syncPlateTagVisibility);
+syncPlateTagVisibility();
 
 // Base map. CARTO's raster tiles stopped serving without an API key on
 // 25 Sep 2026 (they return an "API KEY REQUIRED" placeholder), which left
@@ -218,29 +255,168 @@ new ResizeObserver(() => {
   mapResizeTimer = setTimeout(() => map.invalidateSize(), 100);
 }).observe(mapEl);
 
-function statusColor(status) {
-  return status === 'idling' ? '#f2a93b' : '#35c26f';
+// ---------------------------------------------------------------------------
+// Vehicle markers — one icon per status, numberplate tag underneath.
+//   travelling: green disc with a direction arrow rotated to heading
+//   idling:     amber disc, pause glyph, pulsing ring (engine on, stationary)
+//   parked:     blue rounded square with a "P" (ignition off)
+// ---------------------------------------------------------------------------
+const STATUS_GLYPH = {
+  moving: '<svg viewBox="0 0 24 24" aria-hidden="true"><path class="vm-arrow" d="M12 4.5l5.5 13-5.5-3.2-5.5 3.2z"/></svg>',
+  idling: '<svg viewBox="0 0 24 24" aria-hidden="true"><rect x="8" y="7" width="2.8" height="10" rx="1"/><rect x="13.2" y="7" width="2.8" height="10" rx="1"/></svg>',
+  parked: '<svg viewBox="0 0 24 24" aria-hidden="true"><path d="M9 18V6h4.2a3.8 3.8 0 010 7.6H11.4V18zm2.4-6.6h1.7a1.6 1.6 0 000-3.2h-1.7z"/></svg>',
+};
+
+function normStatus(status) {
+  return STATUS_GLYPH[status] ? status : 'moving';
+}
+
+function vehicleIcon(v) {
+  const status = normStatus(v.status);
+  const selected = state.selectedId === v.id ? ' is-selected' : '';
+  const plate = plateOf(v);
+  const tag = plate
+    ? `<span class="vm-plate">${escapeHtml(plate)}</span>`
+    : `<span class="vm-plate vm-plate--missing">${escapeHtml(v.label)}</span>`;
+  return L.divIcon({
+    className: 'vm-wrap',
+    html: `<div class="vm vm--${status}${selected}">
+        <div class="vm-pin"><div class="vm-glyph" style="transform: rotate(${status === 'moving' ? v.headingDeg || 0 : 0}deg)">${STATUS_GLYPH[status]}</div></div>
+        ${tag}
+      </div>`,
+    iconSize: [30, 30],
+    iconAnchor: [15, 15],
+    popupAnchor: [0, -14],
+  });
+}
+
+function popupHtml(v) {
+  const status = normStatus(v.status);
+  return `<div class="vp">
+    <div class="vp-head">${plateBadge(v, 'plate--lg')}<span class="status-pill status-${status}">${STATUS_LABEL[status]}</span></div>
+    <div class="vp-label">${escapeHtml(v.label)}</div>
+    <dl class="vp-grid">
+      <dt>Driver</dt><dd>${escapeHtml(v.driver || '—')}</dd>
+      <dt>Speed</dt><dd>${v.speedKmh} km/h <span class="vp-muted">(limit ${v.speedLimit})</span></dd>
+      <dt>Odometer</dt><dd>${v.odometerKm} km</dd>
+      <dt>Fuel</dt><dd>${escapeHtml((v.fuelType || '').toUpperCase())} · ${v.co2Kg} kg CO₂</dd>
+      <dt>Utilisation</dt><dd>${v.utilisationPct}%</dd>
+      <dt>Safety</dt><dd>${v.safetyScore}</dd>
+    </dl>
+  </div>`;
+}
+
+function markerVisible(v) {
+  return state.statusFilter === 'all' || normStatus(v.status) === state.statusFilter;
 }
 
 function upsertMarker(v) {
   let marker = state.markers.get(v.id);
-  const popupHtml = `<b>${v.label}</b><br/>Driver: ${v.driver}<br/>Speed: ${v.speedKmh} km/h (limit ${v.speedLimit})<br/>Status: ${v.status}<br/>Odometer: ${v.odometerKm} km<br/>Fuel: ${v.fuelType.toUpperCase()} · CO2: ${v.co2Kg} kg<br/>Utilisation: ${v.utilisationPct}% · Safety: ${v.safetyScore}`;
+  const status = normStatus(v.status);
+  const iconKey = `${status}|${v.plate || ''}|${v.label}|${state.selectedId === v.id}`;
   if (!marker) {
-    marker = L.circleMarker([v.lat, v.lng], {
-      radius: 7,
-      color: statusColor(v.status),
-      fillColor: statusColor(v.status),
-      fillOpacity: 0.9,
-      weight: 2,
-    }).addTo(map);
-    marker.bindPopup(popupHtml);
+    marker = L.marker([v.lat, v.lng], {
+      icon: vehicleIcon(v),
+      title: plateOf(v) || v.label,
+      keyboard: true,
+      riseOnHover: true,
+    });
+    marker.bindPopup(popupHtml(v), { className: 'vp-popup', minWidth: 220 });
+    marker.on('click', () => selectVehicle(v.id, { pan: false }));
+    marker._fsIconKey = iconKey;
     state.markers.set(v.id, marker);
   } else {
     marker.setLatLng([v.lat, v.lng]);
-    marker.setStyle({ color: statusColor(v.status), fillColor: statusColor(v.status) });
-    marker.setPopupContent(popupHtml);
+    if (marker._fsIconKey !== iconKey) {
+      marker.setIcon(vehicleIcon(v));
+      marker._fsIconKey = iconKey;
+    } else if (status === 'moving') {
+      // Same icon, new heading: rotate the existing glyph rather than
+      // rebuilding the marker DOM every tick.
+      const glyph = marker.getElement()?.querySelector('.vm-glyph');
+      if (glyph) glyph.style.transform = `rotate(${v.headingDeg || 0}deg)`;
+    }
+    marker.setPopupContent(popupHtml(v));
   }
+  marker.setZIndexOffset(state.selectedId === v.id ? 1000 : status === 'moving' ? 100 : 0);
+  const visible = markerVisible(v);
+  if (visible && !map.hasLayer(marker)) marker.addTo(map);
+  if (!visible && map.hasLayer(marker)) map.removeLayer(marker);
 }
+
+function refreshAllMarkers() {
+  for (const v of state.vehicles.values()) upsertMarker(v);
+}
+
+function selectVehicle(id, { pan = true } = {}) {
+  state.selectedId = id;
+  refreshAllMarkers();
+  renderVehicleList();
+  const v = state.vehicles.get(id);
+  const marker = state.markers.get(id);
+  if (!v || !marker) return;
+  if (pan) map.setView([v.lat, v.lng], Math.max(map.getZoom(), 14));
+  if (map.hasLayer(marker)) marker.openPopup();
+}
+
+// Deferred: popupclose also fires synchronously while a marker is being
+// removed from the map (e.g. by the status filter), and re-rendering
+// markers in the middle of that removal can leave the marker behind.
+map.on('popupclose', () => {
+  setTimeout(() => {
+    const marker = state.selectedId && state.markers.get(state.selectedId);
+    if (state.selectedId && !(marker && marker.isPopupOpen())) {
+      state.selectedId = null;
+      refreshAllMarkers();
+      renderVehicleList();
+    }
+  }, 0);
+});
+
+function fitFleet() {
+  const pts = Array.from(state.vehicles.values()).filter(markerVisible).map((v) => [v.lat, v.lng]);
+  if (pts.length) map.fitBounds(L.latLngBounds(pts), { paddingTopLeft: [40, 70], paddingBottomRight: fleetPanelOffset() });
+}
+// Keep fitted vehicles out from under the floating fleet panel: it sits on
+// the right on desktop and as a bottom sheet on narrow screens.
+function fleetPanelOffset() {
+  const panel = document.getElementById('vehicleList');
+  if (!panel) return [40, 40];
+  if (window.innerWidth <= 900) return [40, panel.offsetHeight + 50];
+  return [panel.classList.contains('collapsed') ? 40 : panel.offsetWidth + 50, 40];
+}
+document.getElementById('fitFleet').addEventListener('click', fitFleet);
+
+document.querySelectorAll('#statusFilter .st-chip').forEach((chip) => {
+  chip.addEventListener('click', () => {
+    state.statusFilter = chip.dataset.status;
+    const sel = state.selectedId && state.vehicles.get(state.selectedId);
+    if (sel && !markerVisible(sel)) {
+      state.selectedId = null;
+      map.closePopup();
+    }
+    document.querySelectorAll('#statusFilter .st-chip').forEach((c) => {
+      const on = c === chip;
+      c.classList.toggle('active', on);
+      c.setAttribute('aria-pressed', String(on));
+    });
+    refreshAllMarkers();
+    renderVehicleList();
+    fitFleet();
+  });
+});
+
+document.getElementById('plateSearch').addEventListener('input', (e) => {
+  state.search = e.target.value.trim().toLowerCase();
+  renderVehicleList();
+});
+
+document.getElementById('fleetToggle').addEventListener('click', (e) => {
+  const panel = document.getElementById('vehicleList');
+  const collapsed = panel.classList.toggle('collapsed');
+  e.currentTarget.setAttribute('aria-expanded', String(!collapsed));
+  e.currentTarget.textContent = collapsed ? 'Show' : 'Hide';
+});
 
 function renderGeofences() {
   for (const layer of state.geofenceLayers.values()) map.removeLayer(layer);
@@ -262,22 +438,49 @@ function renderGeofences() {
 // ---------------------------------------------------------------------------
 // Vehicle sidebar
 // ---------------------------------------------------------------------------
+const STATUS_ORDER = { moving: 0, idling: 1, parked: 2 };
+
+function renderStatusCounts() {
+  const counts = { moving: 0, idling: 0, parked: 0 };
+  for (const v of state.vehicles.values()) counts[normStatus(v.status)] += 1;
+  document.getElementById('cntAll').textContent = state.vehicles.size;
+  document.getElementById('cntMoving').textContent = counts.moving;
+  document.getElementById('cntIdling').textContent = counts.idling;
+  document.getElementById('cntParked').textContent = counts.parked;
+}
+
 function renderVehicleList() {
   const container = document.getElementById('vehicleItems');
-  document.getElementById('fleetCount').textContent = state.vehicles.size;
-  container.innerHTML = '';
-  const sorted = Array.from(state.vehicles.values()).sort((a, b) => a.id.localeCompare(b.id));
-  for (const v of sorted) {
-    const el = document.createElement('div');
-    el.className = 'vehicle-item';
+  renderStatusCounts();
+  const q = state.search;
+  const list = Array.from(state.vehicles.values())
+    .filter(markerVisible)
+    .filter((v) => !q || `${v.plate || ''} ${(v.plate || '').replace(/[ -]/g, '')} ${v.label} ${v.driver || ''}`.toLowerCase().includes(q))
+    .sort((a, b) =>
+      (STATUS_ORDER[normStatus(a.status)] - STATUS_ORDER[normStatus(b.status)]) ||
+      (!plateOf(a) - !plateOf(b)) ||
+      (plateOf(a) || a.label).localeCompare(plateOf(b) || b.label)
+    );
+  document.getElementById('fleetCount').textContent =
+    list.length === state.vehicles.size ? state.vehicles.size : `${list.length} / ${state.vehicles.size}`;
+
+  container.innerHTML = list.length
+    ? ''
+    : '<p class="hint fleet-empty">No vehicles match.</p>';
+  for (const v of list) {
+    const status = normStatus(v.status);
+    const el = document.createElement('button');
+    el.type = 'button';
+    el.className = `vehicle-item vi--${status}${state.selectedId === v.id ? ' is-selected' : ''}`;
+    const detail =
+      status === 'moving' ? `${v.speedKmh} km/h` : status === 'idling' ? 'Engine on' : 'Ignition off';
     el.innerHTML = `
-      <div class="row1"><span>${v.label}</span><span class="status-pill status-${v.status}">${v.status}</span></div>
-      <div class="row2">${v.driver} · ${v.speedKmh} km/h · ${v.odometerKm} km</div>
-    `;
-    el.addEventListener('click', () => {
-      map.setView([v.lat, v.lng], 13);
-      state.markers.get(v.id)?.openPopup();
-    });
+      <span class="vi-icon vm--${status}" aria-hidden="true"><span class="vm-pin"><span class="vm-glyph" style="transform: rotate(${status === 'moving' ? v.headingDeg || 0 : 0}deg)">${STATUS_GLYPH[status]}</span></span></span>
+      <span class="vi-main">
+        <span class="vi-row1">${plateBadge(v)}<span class="vi-status">${STATUS_LABEL[status]} · ${detail}</span></span>
+        <span class="vi-row2">${escapeHtml(v.label)}${v.driver ? ` · ${escapeHtml(v.driver)}` : ''}</span>
+      </span>`;
+    el.addEventListener('click', () => selectVehicle(v.id));
     container.appendChild(el);
   }
 }
@@ -285,6 +488,12 @@ function renderVehicleList() {
 // ---------------------------------------------------------------------------
 // Alerts
 // ---------------------------------------------------------------------------
+function alertVehicleCell(a) {
+  const v = a.vehicleId ? state.vehicles.get(a.vehicleId) : null;
+  if (v && v.plate) return `${plateBadge(v)} <span class="vp-muted">${escapeHtml(v.label)}</span>`;
+  return escapeHtml(a.vehicleLabel || '—');
+}
+
 function renderAlerts() {
   const rows = document.getElementById('alertRows');
   const filtered =
@@ -297,7 +506,7 @@ function renderAlerts() {
       (a) => `
       <tr>
         <td>${new Date(a.t).toLocaleTimeString()}</td>
-        <td>${a.vehicleLabel || '—'}</td>
+        <td>${alertVehicleCell(a)}</td>
         <td>${a.type.replace(/_/g, ' ')}</td>
         <td><span class="sev sev-${a.severity}">${a.severity}</span></td>
         <td>${a.message}</td>
@@ -326,8 +535,9 @@ async function loadCompliance() {
     .map(
       (v) => `
       <tr>
-        <td>${v.label}</td>
-        <td>${v.driver}</td>
+        <td>${plateBadge(v)}</td>
+        <td>${escapeHtml(v.label)}</td>
+        <td>${escapeHtml(v.driver || '—')}</td>
         <td>${v.safetyScore}</td>
         <td>${v.regoExpiryDate} (${v.regoDaysRemaining}d)</td>
         <td><span class="sev sev-${complianceSev(v.regoStatus)}">${v.regoStatus.replace('_', ' ')}</span></td>
@@ -372,15 +582,55 @@ async function loadFleetTab() {
   list.innerHTML = vehicles
     .map(
       (v) => `
-    <div class="geofence-card">
+    <div class="geofence-card fleet-card">
       <div>
-        <div>${v.label} <span class="gf-type custom">${v.fuelType.toUpperCase()}</span></div>
-        <div class="meta">${v.driver || 'No driver assigned'} · ${v.id}</div>
+        <div class="fleet-card-title">${plateBadge(v)} ${escapeHtml(v.label)} <span class="gf-type custom">${escapeHtml(v.fuelType.toUpperCase())}</span></div>
+        <div class="meta">${escapeHtml(v.driver || 'No driver assigned')} · ${escapeHtml(v.id)}</div>
+        <form class="plate-edit" data-id="${escapeHtml(v.id)}" hidden>
+          <input type="text" class="plate-input" maxlength="12" required placeholder="e.g. 1AB 2CD" value="${escapeHtml(v.plate || '')}" aria-label="Numberplate for ${escapeHtml(v.label)}" />
+          <button type="submit" class="btn-plate-save">Save</button>
+          <span class="hint error plate-err"></span>
+        </form>
       </div>
-      <button data-id="${v.id}">Remove</button>
+      <div class="fleet-card-actions">
+        <button type="button" class="btn-plate" data-edit="${escapeHtml(v.id)}">${v.plate ? 'Edit plate' : 'Set plate'}</button>
+        <button type="button" data-id="${escapeHtml(v.id)}">Remove</button>
+      </div>
     </div>`
     )
     .join('') || '<p class="hint">No vehicles yet — add your first one.</p>';
+
+  list.querySelectorAll('button[data-edit]').forEach((btn) => {
+    btn.addEventListener('click', () => {
+      const form = list.querySelector(`form.plate-edit[data-id="${CSS.escape(btn.dataset.edit)}"]`);
+      form.hidden = !form.hidden;
+      if (!form.hidden) form.querySelector('input').focus();
+    });
+  });
+  list.querySelectorAll('form.plate-edit').forEach((form) => {
+    form.addEventListener('submit', async (e) => {
+      e.preventDefault();
+      const err = form.querySelector('.plate-err');
+      err.textContent = '';
+      const res = await authedFetch(`/api/vehicles/${encodeURIComponent(form.dataset.id)}`, {
+        method: 'PATCH',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ plate: form.querySelector('input').value }),
+      });
+      const data = await res.json().catch(() => ({}));
+      if (!res.ok) {
+        err.textContent = data.error || 'Could not save numberplate.';
+        return;
+      }
+      const live = state.vehicles.get(data.id);
+      if (live) {
+        live.plate = data.plate;
+        upsertMarker(live);
+        renderVehicleList();
+      }
+      loadFleetTab();
+    });
+  });
 
   list.querySelectorAll('button[data-id]').forEach((btn) => {
     btn.addEventListener('click', async () => {
@@ -402,6 +652,7 @@ document.getElementById('addVehicleForm').addEventListener('submit', async (e) =
   errorEl.textContent = '';
   const submitBtn = e.target.querySelector('button[type="submit"]');
   const body = {
+    plate: document.getElementById('vPlate').value,
     label: document.getElementById('vLabel').value,
     driver: document.getElementById('vDriver').value || undefined,
     fuelType: document.getElementById('vFuelType').value,
@@ -453,6 +704,7 @@ async function handleCheckoutReturn() {
   document.querySelectorAll('.tab-btn').forEach((b) => b.classList.remove('active'));
   document.querySelectorAll('.tab-panel').forEach((p) => p.classList.remove('active'));
   document.querySelector('.tab-btn[data-tab="fleet"]').classList.add('active');
+  document.body.classList.remove('map-mode');
   document.getElementById('tab-fleet').classList.add('active');
 
   const statusEl = document.getElementById('fleetStatusMsg');
@@ -555,10 +807,7 @@ function connect() {
       renderGeofenceList();
       renderVehicleList();
       renderAlerts();
-      if (msg.vehicles.length) {
-        const bounds = L.latLngBounds(msg.vehicles.map((v) => [v.lat, v.lng]));
-        map.fitBounds(bounds.pad(0.3));
-      }
+      if (msg.vehicles.length) fitFleet();
     } else if (msg.type === 'positions') {
       for (const v of msg.vehicles) {
         state.vehicles.set(v.id, v);

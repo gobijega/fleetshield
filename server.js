@@ -54,6 +54,11 @@ const reports = require('./lib/reports');
 
 const PORT = process.env.PORT || 3000;
 const TICK_MS = 2000; // simulation heartbeat
+// Parking behaviour for the simulated fleet: chance a vehicle parks
+// (ignition off) after its depot idle, and how long it stays parked.
+const PARK_CHANCE = 0.4;
+const PARK_MIN_TICKS = 30; // 1 min
+const PARK_MAX_TICKS = 150; // 5 min
 
 // Controlled-beta gate for the public "/api/signup" endpoint. Fleet Shield's
 // Terms of Service, Privacy Notice, and Subscription & Billing Terms are
@@ -135,10 +140,10 @@ async function ensureDefaultOrgSeed() {
         .slice(0, 10);
       await db.query(
         `INSERT INTO vehicles
-          (id, label, driver, route, speed_limit, base_speed, fuel_type, consumption_per_100, idle_rate_per_hour, starting_odometer_km, rego_expiry_date, org_id)
-         VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,'default')
+          (id, label, driver, route, speed_limit, base_speed, fuel_type, consumption_per_100, idle_rate_per_hour, starting_odometer_km, rego_expiry_date, plate, org_id)
+         VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,'default')
          ON CONFLICT (id) DO NOTHING`,
-        [v.id, v.label, v.driver, v.route, v.speedLimit, v.baseSpeed, v.fuelType, v.consumptionPer100, v.idleRatePerHour, v.startingOdometerKm, regoExpiryDate]
+        [v.id, v.label, v.driver, v.route, v.speedLimit, v.baseSpeed, v.fuelType, v.consumptionPer100, v.idleRatePerHour, v.startingOdometerKm, regoExpiryDate, v.plate]
       );
     }
 
@@ -171,6 +176,7 @@ async function loadVehiclesForOrg(orgId) {
   const { rows } = await db.query('SELECT * FROM vehicles WHERE org_id = $1 ORDER BY id', [orgId]);
   return rows.map((r) => ({
     id: r.id,
+    plate: r.plate || null,
     label: r.label,
     driver: r.driver,
     route: r.route,
@@ -219,6 +225,9 @@ async function initVehiclesForOrg(orgId, vehicleConfigs) {
       headingDeg: 0,
       status: 'moving',
       idleTicks: 0,
+      // A share of the fleet starts the session parked at its depot, so the
+      // live map shows all three states (travelling / idling / parked).
+      parkTicks: Math.random() < 0.3 ? PARK_MIN_TICKS + Math.floor(Math.random() * PARK_MAX_TICKS) : 0,
       lastGeofence: new Set(),
       updatedAt: nowIso(),
       odometerKm: last ? Number(last.odometer_km) : 0,
@@ -329,6 +338,17 @@ function tickOrg(orgId, orgState, shouldPersist) {
     const from = route[v.segIndex];
     const to = route[(v.segIndex + 1) % route.length];
 
+    // Parked: ignition off at the depot. No speed, no fuel, no engine time —
+    // distinct from idling (engine on, stationary), which burns fuel.
+    if (v.parkTicks > 0) {
+      v.parkTicks -= 1;
+      v.status = 'parked';
+      v.speedKmh = 0;
+      v.updatedAt = nowIso();
+      if (shouldPersist) positionRows.push(snapshotRow(v));
+      continue;
+    }
+
     if (v.segIndex === 0 && v.segT < 0.02) {
       if (v.idleTicks < 3) {
         v.idleTicks += 1;
@@ -350,6 +370,11 @@ function tickOrg(orgId, orgState, shouldPersist) {
             lat: v.lat,
             lng: v.lng,
           });
+          // After warming up at the depot, some runs end with the vehicle
+          // switched off and parked for a while before the next loop.
+          if (Math.random() < PARK_CHANCE) {
+            v.parkTicks = PARK_MIN_TICKS + Math.floor(Math.random() * (PARK_MAX_TICKS - PARK_MIN_TICKS));
+          }
         }
         continue;
       }
@@ -463,6 +488,7 @@ function serializeVehicles(orgState) {
     const totalSec = v.movingSec + v.idlingSec;
     return {
       id: v.id,
+      plate: v.plate || null,
       label: v.label,
       driver: v.driver,
       lat: v.lat,
@@ -563,8 +589,8 @@ app.post('/api/webhooks/stripe', express.raw({ type: 'application/json' }), asyn
             console.error(`add_vehicle webhook: no org found for ${orgId}`);
             break;
           }
-          const { label, driver, fuelType } = session.metadata;
-          const v = await insertVehicleForOrg(orgId, { label, driver, fuelType });
+          const { label, driver, fuelType, plate } = session.metadata;
+          const v = await insertVehicleForOrg(orgId, { label, driver, fuelType, plate });
           await audit('vehicle_added', { orgId, detail: `${v.id}: ${v.label} (paid via Checkout, session ${session.id})` });
           const orgState = getOrgState(orgId);
           // prorationBehavior: 'none' — the customer already paid the
@@ -906,8 +932,24 @@ app.get('/api/vehicles', (req, res) => {
 const VEHICLE_LABEL_MAX_LEN = 100;
 const VEHICLE_FUEL_TYPES = new Set(['diesel', 'petrol', 'ev']);
 
+// Numberplates: upper-case, letters/digits with single spaces or hyphens,
+// 2–10 characters ignoring separators. Covers Australian standard,
+// custom and interstate formats without enforcing any one state's pattern.
+const PLATE_RE = /^[A-Z0-9](?:[A-Z0-9]|[ -](?=[A-Z0-9])){1,11}$/;
+
+function normalizePlate(raw) {
+  if (typeof raw !== 'string') return null;
+  const p = raw.trim().toUpperCase().replace(/\s+/g, ' ');
+  const bare = p.replace(/[ -]/g, '');
+  if (bare.length < 2 || bare.length > 10 || !PLATE_RE.test(p)) return null;
+  return p;
+}
+
 function validateVehicleInput(body) {
-  const { label, driver, fuelType } = body || {};
+  const { label, driver, fuelType, plate } = body || {};
+  if (!normalizePlate(plate)) {
+    return 'plate is required (2-10 letters/digits, spaces or hyphens allowed)';
+  }
   if (typeof label !== 'string' || !label.trim() || label.length > VEHICLE_LABEL_MAX_LEN) {
     return `label is required (string, 1-${VEHICLE_LABEL_MAX_LEN} chars)`;
   }
@@ -940,7 +982,7 @@ async function syncOrgSubscriptionQuantity(org, vehicleCount, prorationBehavior 
 // and the Stripe webhook handler (payment-confirmed add — the normal path
 // once billing is enabled). Inserts the row, seeds the in-memory sim state,
 // and returns the vehicle so the caller can respond/log as appropriate.
-async function insertVehicleForOrg(orgId, { label, driver, fuelType }) {
+async function insertVehicleForOrg(orgId, { label, driver, fuelType, plate }) {
   const orgState = getOrgState(orgId);
   const defaults = FUEL_DEFAULTS[fuelType];
   const route = ROUTE_KEYS[orgState.vehicles.size % ROUTE_KEYS.length];
@@ -948,6 +990,7 @@ async function insertVehicleForOrg(orgId, { label, driver, fuelType }) {
 
   const v = {
     id: uid('veh'),
+    plate: normalizePlate(plate),
     label: label.trim(),
     driver: driver ? driver.trim() : null,
     route,
@@ -962,9 +1005,9 @@ async function insertVehicleForOrg(orgId, { label, driver, fuelType }) {
 
   await db.query(
     `INSERT INTO vehicles
-      (id, label, driver, route, speed_limit, base_speed, fuel_type, consumption_per_100, idle_rate_per_hour, starting_odometer_km, rego_expiry_date, org_id)
-     VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12)`,
-    [v.id, v.label, v.driver, v.route, v.speedLimit, v.baseSpeed, v.fuelType, v.consumptionPer100, v.idleRatePerHour, v.startingOdometerKm, v.regoExpiryDate, orgId]
+      (id, label, driver, route, speed_limit, base_speed, fuel_type, consumption_per_100, idle_rate_per_hour, starting_odometer_km, rego_expiry_date, plate, org_id)
+     VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13)`,
+    [v.id, v.label, v.driver, v.route, v.speedLimit, v.baseSpeed, v.fuelType, v.consumptionPer100, v.idleRatePerHour, v.startingOdometerKm, v.regoExpiryDate, v.plate, orgId]
   );
   await initVehiclesForOrg(orgId, [v]);
   return v;
@@ -981,10 +1024,13 @@ app.post('/api/vehicles', async (req, res) => {
   const validationError = validateVehicleInput(req.body);
   if (validationError) return res.status(400).json({ error: validationError });
 
-  const { label, driver, fuelType } = req.body;
+  const { label, driver, fuelType, plate } = req.body;
+  if (plateTaken(getOrgState(req.orgId), normalizePlate(plate))) {
+    return res.status(409).json({ error: 'A vehicle with that numberplate is already in your fleet.' });
+  }
   try {
-    const v = await insertVehicleForOrg(req.orgId, { label, driver, fuelType });
-    await audit('vehicle_added', { orgId: req.orgId, username: req.session.username, ip: req.ip, detail: `${v.id}: ${v.label}` });
+    const v = await insertVehicleForOrg(req.orgId, { label, driver, fuelType, plate });
+    await audit('vehicle_added', { orgId: req.orgId, username: req.session.username, ip: req.ip, detail: `${v.id}: ${v.plate} ${v.label}` });
     const orgState = getOrgState(req.orgId);
     await syncOrgSubscriptionQuantity(req.org, orgState.vehicles.size);
     res.status(201).json(serializeVehicles(orgState).find((sv) => sv.id === v.id));
@@ -1011,10 +1057,15 @@ app.post('/api/vehicles/checkout', async (req, res) => {
   }
 
   const { label, driver, fuelType } = req.body;
+  const plate = normalizePlate(req.body.plate);
+  if (plateTaken(getOrgState(req.orgId), plate)) {
+    return res.status(409).json({ error: 'A vehicle with that numberplate is already in your fleet.' });
+  }
   try {
     const session = await billing.createVehicleAddCheckoutSession({
       orgId: req.orgId,
       stripeCustomerId: req.org.stripe_customer_id,
+      plate,
       label: label.trim(),
       driver: driver ? driver.trim() : '',
       fuelType,
@@ -1023,6 +1074,38 @@ app.post('/api/vehicles/checkout', async (req, res) => {
   } catch (err) {
     console.error('Failed to create vehicle-add checkout session:', err);
     res.status(500).json({ error: 'Could not start payment. Please try again.' });
+  }
+});
+
+function plateTaken(orgState, plate, exceptId) {
+  if (!plate) return false;
+  for (const v of orgState.vehicles.values()) {
+    if (v.id !== exceptId && v.plate && v.plate.toUpperCase() === plate) return true;
+  }
+  return false;
+}
+
+// Set or correct a vehicle's numberplate (vehicles added before plates were
+// recorded have none; the Fleet tab prompts for them).
+app.patch('/api/vehicles/:id', async (req, res) => {
+  const orgState = getOrgState(req.orgId);
+  const v = orgState.vehicles.get(req.params.id);
+  if (!v) return res.status(404).json({ error: 'vehicle not found' });
+  const plate = normalizePlate(req.body && req.body.plate);
+  if (!plate) return res.status(400).json({ error: 'plate is required (2-10 letters/digits, spaces or hyphens allowed)' });
+  if (plateTaken(orgState, plate, v.id)) {
+    return res.status(409).json({ error: 'A vehicle with that numberplate is already in your fleet.' });
+  }
+  try {
+    await db.query('UPDATE vehicles SET plate = $1 WHERE id = $2 AND org_id = $3', [plate, v.id, req.orgId]);
+    const previous = v.plate;
+    v.plate = plate;
+    await audit('vehicle_plate_set', { orgId: req.orgId, username: req.session.username, ip: req.ip, detail: `${v.id}: ${previous || '(none)'} -> ${plate}` });
+    res.json(serializeVehicles(orgState).find((sv) => sv.id === v.id));
+  } catch (err) {
+    if (err.code === '23505') return res.status(409).json({ error: 'A vehicle with that numberplate is already in your fleet.' });
+    console.error(err);
+    res.status(500).json({ error: 'update failed' });
   }
 });
 
@@ -1323,6 +1406,7 @@ app.get('/api/compliance', (req, res) => {
       const regoDays = daysUntil(v.regoExpiryDate);
       return {
         id: v.id,
+        plate: v.plate || null,
         label: v.label,
         driver: v.driver,
         safetyScore: safetyScore(getOrgState(req.orgId), v.id),
