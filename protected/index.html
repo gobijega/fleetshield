@@ -45,11 +45,28 @@
 
 <main>
   <section id="tab-map" class="tab-panel active">
-    <div class="map-layout">
+    <div class="map-stage">
       <div id="map"></div>
-      <aside class="vehicle-list" id="vehicleList">
-        <h3>Fleet (<span id="fleetCount">0</span>)</h3>
-        <div id="vehicleItems"></div>
+
+      <div class="map-statusbar" id="statusFilter" role="group" aria-label="Show vehicles by status">
+        <button type="button" class="st-chip active" data-status="all" aria-pressed="true">All <b id="cntAll">0</b></button>
+        <button type="button" class="st-chip st-moving" data-status="moving" aria-pressed="false"><span class="st-dot"></span>Travelling <b id="cntMoving">0</b></button>
+        <button type="button" class="st-chip st-idling" data-status="idling" aria-pressed="false"><span class="st-dot"></span>Idling <b id="cntIdling">0</b></button>
+        <button type="button" class="st-chip st-parked" data-status="parked" aria-pressed="false"><span class="st-dot"></span>Parked <b id="cntParked">0</b></button>
+        <button type="button" class="st-fit" id="fitFleet" title="Zoom to show the whole fleet">Fit fleet</button>
+      </div>
+
+      <aside class="fleet-panel" id="vehicleList" aria-label="Fleet list">
+        <div class="fleet-panel-head">
+          <h3>Fleet <span class="fleet-count" id="fleetCount">0</span></h3>
+          <button type="button" class="fleet-toggle" id="fleetToggle" aria-expanded="true" aria-controls="fleetPanelBody">Hide</button>
+        </div>
+        <div class="fleet-panel-body" id="fleetPanelBody">
+          <label class="fleet-search"><span class="sr-only">Search by numberplate, vehicle or driver</span>
+            <input type="search" id="plateSearch" placeholder="Search numberplate or driver" autocomplete="off" />
+          </label>
+          <div id="vehicleItems" class="fleet-items"></div>
+        </div>
       </aside>
     </div>
   </section>
@@ -251,6 +268,7 @@
       <div class="geofence-list" id="fleetVehicleList"></div>
       <form class="geofence-form" id="addVehicleForm">
         <h3>Add Vehicle</h3>
+        <label>Numberplate<input type="text" id="vPlate" required maxlength="12" placeholder="e.g. 1AB 2CD" autocapitalize="characters" autocomplete="off" class="plate-input" /></label>
         <label>Label<input type="text" id="vLabel" required maxlength="100" placeholder="e.g. Waste Collection 11" /></label>
         <label>Driver<input type="text" id="vDriver" maxlength="100" placeholder="Optional" /></label>
         <label>Fuel type
@@ -294,7 +312,7 @@
     <div class="alert-table-wrap">
       <table class="alert-table" id="complianceTable">
         <thead>
-          <tr><th>Vehicle</th><th>Driver</th><th>Safety Score</th><th>Rego Expiry</th><th>Rego Status</th><th>Service Due</th><th>Service Status</th></tr>
+          <tr><th>Numberplate</th><th>Vehicle</th><th>Driver</th><th>Safety Score</th><th>Rego Expiry</th><th>Rego Status</th><th>Service Due</th><th>Service Status</th></tr>
         </thead>
         <tbody id="complianceRows"></tbody>
       </table>

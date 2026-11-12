@@ -12,6 +12,7 @@
   --amber: #ffb020;
   --red: #ff4d5e;
   --info: #00ff41;
+  --parked: #4ea1ff;
 }
 
 * { box-sizing: border-box; }
@@ -98,27 +99,6 @@ main { padding: 20px 24px 40px; max-width: 1400px; margin: 0 auto; }
 .tab-panel { display: none; }
 .tab-panel.active { display: block; }
 
-.map-layout { display: flex; gap: 16px; }
-#map { flex: 1; height: 620px; border-radius: 10px; border: 1px solid var(--border); }
-.vehicle-list {
-  width: 300px;
-  background: var(--panel);
-  border: 1px solid var(--border);
-  border-radius: 10px;
-  padding: 14px;
-  height: 620px;
-  overflow-y: auto;
-}
-.vehicle-list h3 { margin-top: 0; font-size: 14px; color: var(--muted); }
-.vehicle-item {
-  padding: 10px;
-  border-radius: 8px;
-  background: var(--panel-2);
-  margin-bottom: 8px;
-  font-size: 13px;
-}
-.vehicle-item .row1 { display: flex; justify-content: space-between; font-weight: 600; }
-.vehicle-item .row2 { color: var(--muted); font-size: 12px; margin-top: 3px; }
 .status-pill {
   font-size: 10px;
   padding: 2px 7px;
@@ -127,6 +107,231 @@ main { padding: 20px 24px 40px; max-width: 1400px; margin: 0 auto; }
 }
 .status-moving { background: rgba(0,255,65,0.12); color: var(--green); }
 .status-idling { background: rgba(255,176,32,0.12); color: var(--amber); }
+.status-parked { background: rgba(78,161,255,0.14); color: var(--parked); }
+
+/* ---------------------------------------------------------------------
+   Live Map — map fills the viewport below the tabs; fleet list and
+   status filter float over it instead of taking a column of their own.
+--------------------------------------------------------------------- */
+body.map-mode { height: 100vh; height: 100dvh; display: flex; flex-direction: column; overflow: hidden; }
+body.map-mode main { flex: 1; min-height: 0; max-width: none; padding: 0; width: 100%; }
+body.map-mode #tab-map { height: 100%; }
+.map-stage { position: relative; height: 100%; min-height: 420px; }
+#map { position: absolute; inset: 0; height: 100%; width: 100%; background: #000; }
+
+/* Numberplate badge — styled after an Australian plate: white, black
+   mono characters, thin dark border. Used in the list, popups, tables. */
+.plate {
+  display: inline-block;
+  font-family: 'IBM Plex Mono', 'SFMono-Regular', Consolas, monospace;
+  font-weight: 600;
+  font-size: 12px;
+  letter-spacing: 0.06em;
+  line-height: 1;
+  padding: 4px 6px 3px;
+  color: #0b0b0b;
+  background: #f5f6f2;
+  border: 1px solid #0b0b0b;
+  border-radius: 3px;
+  box-shadow: 0 0 0 1px #f5f6f2;
+  white-space: nowrap;
+  vertical-align: middle;
+}
+.plate--lg { font-size: 15px; padding: 5px 8px 4px; }
+.plate--missing { background: transparent; color: var(--amber); border: 1px dashed var(--amber); box-shadow: none; font-size: 10px; letter-spacing: 0.08em; }
+.plate-input { font-family: 'IBM Plex Mono', monospace !important; text-transform: uppercase; letter-spacing: 0.06em; }
+
+/* Status filter chips */
+.map-statusbar {
+  position: absolute;
+  top: 12px;
+  left: 12px;
+  z-index: 800;
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+  max-width: calc(100% - 360px);
+}
+.st-chip, .st-fit {
+  display: inline-flex;
+  align-items: center;
+  gap: 7px;
+  background: rgba(14, 19, 28, 0.92);
+  backdrop-filter: blur(6px);
+  color: var(--text);
+  border: 1px solid var(--border-bright);
+  border-radius: 999px;
+  padding: 7px 12px;
+  font-size: 12.5px;
+  cursor: pointer;
+}
+.st-chip b { font-family: 'IBM Plex Mono', monospace; font-weight: 600; color: var(--muted); }
+.st-chip:hover, .st-fit:hover { border-color: var(--muted); }
+.st-chip.active { border-color: var(--accent); }
+.st-chip.active b { color: var(--text); }
+.st-chip.st-moving.active { border-color: var(--green); }
+.st-chip.st-idling.active { border-color: var(--amber); }
+.st-chip.st-parked.active { border-color: var(--parked); }
+.st-dot { width: 9px; height: 9px; border-radius: 50%; }
+.st-moving .st-dot { background: var(--green); }
+.st-idling .st-dot { background: var(--amber); }
+.st-parked .st-dot { background: var(--parked); border-radius: 2px; }
+.st-fit { color: var(--muted); font-family: 'IBM Plex Mono', monospace; font-size: 11px; text-transform: uppercase; letter-spacing: 0.05em; }
+
+/* Floating fleet panel */
+.fleet-panel {
+  position: absolute;
+  top: 12px;
+  right: 12px;
+  bottom: 12px;
+  z-index: 800;
+  width: 320px;
+  display: flex;
+  flex-direction: column;
+  background: rgba(14, 19, 28, 0.94);
+  backdrop-filter: blur(8px);
+  border: 1px solid var(--border-bright);
+  border-radius: 10px;
+  overflow: hidden;
+}
+.fleet-panel.collapsed { bottom: auto; }
+.fleet-panel.collapsed .fleet-panel-body { display: none; }
+.fleet-panel-head { display: flex; align-items: center; justify-content: space-between; padding: 12px 14px 10px; }
+.fleet-panel-head h3 { margin: 0; font-size: 13px; color: var(--text); font-weight: 600; letter-spacing: 0.02em; }
+.fleet-count { font-family: 'IBM Plex Mono', monospace; color: var(--muted); font-weight: 500; margin-left: 4px; }
+.fleet-toggle {
+  background: transparent;
+  border: 1px solid var(--border-bright);
+  color: var(--muted);
+  font-family: 'IBM Plex Mono', monospace;
+  font-size: 10.5px;
+  text-transform: uppercase;
+  letter-spacing: 0.05em;
+  padding: 4px 9px;
+  cursor: pointer;
+}
+.fleet-toggle:hover { color: var(--accent); border-color: var(--accent); }
+.fleet-panel-body { display: flex; flex-direction: column; min-height: 0; flex: 1; }
+.fleet-search { padding: 0 14px 10px; }
+.fleet-search input {
+  width: 100%;
+  background: var(--panel-2);
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  padding: 8px 10px;
+  color: var(--text);
+  font-size: 13px;
+}
+.fleet-search input:focus { outline: none; border-color: var(--accent); }
+.fleet-items { overflow-y: auto; padding: 0 8px 10px; flex: 1; min-height: 0; }
+.fleet-empty { padding: 0 6px; }
+
+.vehicle-item {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  width: 100%;
+  text-align: left;
+  font: inherit;
+  color: inherit;
+  padding: 9px 8px;
+  border-radius: 8px;
+  background: transparent;
+  border: 1px solid transparent;
+  cursor: pointer;
+  margin-bottom: 2px;
+}
+.vehicle-item:hover { background: var(--panel-2); }
+.vehicle-item.is-selected { background: var(--panel-2); border-color: var(--border-bright); }
+.vehicle-item:focus-visible { outline: 2px solid var(--accent); outline-offset: -2px; }
+.vi-main { display: flex; flex-direction: column; gap: 5px; min-width: 0; flex: 1; }
+.vi-row1 { display: flex; align-items: center; justify-content: space-between; gap: 8px; }
+.vi-status { font-size: 11.5px; color: var(--muted); white-space: nowrap; }
+.vi--moving .vi-status { color: var(--green); }
+.vi--idling .vi-status { color: var(--amber); }
+.vi--parked .vi-status { color: var(--parked); }
+.vi-row2 { font-size: 12px; color: var(--muted); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.vi-icon { flex: none; }
+.vi-icon .vm-pin { width: 26px; height: 26px; }
+
+/* Map vehicle markers (L.divIcon, className .vm-wrap) */
+.vm-wrap { background: none; border: none; }
+.vm { position: relative; width: 30px; height: 30px; }
+.vm-pin {
+  position: relative;
+  width: 30px;
+  height: 30px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  border-radius: 50%;
+  border: 2px solid #05070b;
+  box-shadow: 0 0 0 1.5px rgba(255,255,255,0.85), 0 2px 6px rgba(0,0,0,0.6);
+}
+.vm-glyph { width: 100%; height: 100%; display: flex; align-items: center; justify-content: center; transition: transform 0.6s ease; }
+.vm-glyph svg { width: 70%; height: 70%; fill: #05070b; }
+.vm--moving .vm-pin { background: var(--green); }
+.vm--idling .vm-pin { background: var(--amber); }
+.vm--parked .vm-pin { background: var(--parked); border-radius: 7px; }
+.vm--parked .vm-glyph svg { fill: #ffffff; }
+.vm--idling .vm-pin::after {
+  content: '';
+  position: absolute;
+  inset: -6px;
+  border-radius: 50%;
+  border: 2px solid var(--amber);
+  opacity: 0;
+  animation: vm-pulse 1.8s ease-out infinite;
+}
+@keyframes vm-pulse {
+  0% { transform: scale(0.7); opacity: 0.8; }
+  100% { transform: scale(1.35); opacity: 0; }
+}
+@media (prefers-reduced-motion: reduce) {
+  .vm--idling .vm-pin::after { animation: none; opacity: 0.5; transform: none; }
+  .vm-glyph { transition: none; }
+}
+.vm.is-selected .vm-pin { box-shadow: 0 0 0 3px #ffffff, 0 0 0 6px rgba(0,255,65,0.35), 0 2px 8px rgba(0,0,0,0.7); }
+.vm-plate {
+  position: absolute;
+  top: 34px;
+  left: 50%;
+  transform: translateX(-50%);
+  font-family: 'IBM Plex Mono', 'SFMono-Regular', Consolas, monospace;
+  font-weight: 600;
+  font-size: 11px;
+  letter-spacing: 0.06em;
+  line-height: 1;
+  padding: 3px 5px 2px;
+  color: #0b0b0b;
+  background: #f5f6f2;
+  border: 1px solid #0b0b0b;
+  border-radius: 3px;
+  white-space: nowrap;
+  box-shadow: 0 1px 4px rgba(0,0,0,0.6);
+  pointer-events: none;
+}
+.vm-plate--missing { background: rgba(14,19,28,0.9); color: var(--amber); border: 1px dashed var(--amber); font-family: 'Inter', sans-serif; letter-spacing: 0; font-weight: 500; }
+.vm.is-selected .vm-plate { outline: 2px solid var(--accent); }
+#map.hide-plate-tags .vm-plate { display: none; }
+
+/* Vehicle popup */
+.vp-popup .leaflet-popup-content { margin: 12px 14px; }
+.vp-head { display: flex; align-items: center; justify-content: space-between; gap: 10px; }
+.vp-label { margin: 8px 0 8px; font-weight: 600; font-size: 13px; }
+.vp-grid { display: grid; grid-template-columns: auto 1fr; gap: 4px 12px; margin: 0; font-size: 12.5px; }
+.vp-grid dt { color: var(--muted); }
+.vp-grid dd { margin: 0; }
+.vp-muted { color: var(--muted); }
+
+/* Fleet & Billing tab: plate editing */
+.fleet-card-title { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; }
+.fleet-card-actions { display: flex; gap: 8px; flex: none; }
+.geofence-card .btn-plate { color: var(--accent); border-color: var(--border-bright); }
+.plate-edit { display: flex; gap: 8px; align-items: center; margin-top: 8px; flex-wrap: wrap; }
+.plate-edit[hidden] { display: none; }
+.plate-edit input { background: var(--panel-2); border: 1px solid var(--border); border-radius: 6px; padding: 6px 8px; color: var(--text); width: 140px; }
+.geofence-card .plate-edit .btn-plate-save { color: #04120f; background: var(--accent); border-color: var(--accent); }
 
 .panel-header { display: flex; justify-content: space-between; align-items: center; }
 .panel-header select, #alertFilter {
@@ -272,7 +477,6 @@ main { padding: 20px 24px 40px; max-width: 1400px; margin: 0 auto; }
 .leaflet-popup-tip { background: var(--panel-2); }
 /* Darkened OpenStreetMap tiles (see addBaseLayer in app.js) */
 .tiles-dark { filter: invert(1) hue-rotate(180deg) brightness(0.85) contrast(0.9) saturate(0.35); }
-#map { background: #000; }
 .leaflet-control-attribution { background: rgba(0, 0, 0, 0.7) !important; color: var(--muted); }
 .leaflet-control-attribution a { color: var(--muted); }
 
@@ -300,14 +504,11 @@ main { padding: 20px 24px 40px; max-width: 1400px; margin: 0 auto; }
   .tabs::-webkit-scrollbar { display: none; }
   .tab-btn { padding: 10px 12px; font-size: 12.5px; white-space: nowrap; flex-shrink: 0; }
 
-  .map-layout { flex-direction: column; }
-  /* #map has flex:1 (flex-basis:0) in the base rule for the desktop
-     row layout, where the main axis is horizontal. Once .map-layout
-     switches to column here, the main axis becomes vertical and that
-     flex-basis:0 wins over the height below, collapsing the map to
-     ~0px. flex:none forces the explicit height to actually apply. */
-  #map { flex: none; height: 380px; width: 100%; }
-  .vehicle-list { width: 100%; height: 280px; }
+  /* Fleet panel becomes a bottom sheet so the map keeps the full width. */
+  .map-statusbar { max-width: calc(100% - 24px); }
+  .fleet-panel { top: auto; left: 12px; right: 12px; bottom: 30px; width: auto; max-height: 42%; }
+  .leaflet-control-zoom { display: none; }
+  .fleet-panel.collapsed { max-height: none; }
 
   .reports-grid { flex-direction: column; }
 
@@ -333,8 +534,10 @@ main { padding: 20px 24px 40px; max-width: 1400px; margin: 0 auto; }
 
   .tab-btn { padding: 9px 10px; font-size: 12px; }
 
-  #map { height: 320px; }
-  .vehicle-list { height: 240px; }
+  .st-chip, .st-fit { padding: 6px 9px; font-size: 12px; }
+  .st-fit { display: none; }
+  .fleet-panel { left: 8px; right: 8px; bottom: 26px; }
+  .fleet-search input { font-size: 16px; }
 
   .panel-header { flex-direction: column; align-items: flex-start; gap: 8px; }
   .panel-header select, #alertFilter { width: 100%; }
