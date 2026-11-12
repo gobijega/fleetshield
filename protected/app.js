@@ -198,7 +198,11 @@ document.getElementById('csvImportForm').addEventListener('submit', async (e) =>
 document.body.classList.add('map-mode');
 // Zoom + attribution sit bottom-left: the right side is taken by the
 // floating fleet panel, which would otherwise cover the OSM attribution.
-const map = L.map('map', { zoomControl: false, attributionControl: false }).setView([-37.8136, 144.9631], 10);
+// Geofences use the Canvas renderer: with SVG, a depot circle at street
+// zoom becomes a path thousands of pixels across, and repainting it beside
+// the animated vehicle markers left corrupted slabs over the fleet panel
+// and header. Canvas is clipped to the viewport, so its cost stays fixed.
+const map = L.map('map', { zoomControl: false, attributionControl: false, minZoom: 3, worldCopyJump: true, renderer: L.canvas({ padding: 0.25 }) }).setView([-37.8136, 144.9631], 10);
 L.control.zoom({ position: 'bottomleft' }).addTo(map);
 L.control.attribution({ position: 'bottomleft' }).addTo(map);
 
@@ -219,19 +223,60 @@ syncPlateTagVisibility();
 // referrerPolicy: the app sends no Referer by default (helmet), but OSM's
 // tile servers require one, so tiles opt back in to sending the origin.
 function addBaseLayer(cartoKey) {
-  const common = { maxZoom: 19, referrerPolicy: 'strict-origin-when-cross-origin' };
+  // Zooming out swaps in a whole new grid of tiles at once. On a large
+  // screen that is 60+ simultaneous requests, which OSM's public tile
+  // server throttles; the dropped tiles used to stay black for good.
+  // Loading only once a zoom/pan settles (rather than at every animation
+  // frame) roughly halves the request bursts, and failed tiles are
+  // retried with backoff below.
+  const common = {
+    maxZoom: 19,
+    referrerPolicy: 'strict-origin-when-cross-origin',
+    updateWhenZooming: false,
+    updateWhenIdle: true,
+    keepBuffer: 3,
+  };
+  let layer;
   if (cartoKey) {
-    L.tileLayer(
+    layer = L.tileLayer(
       `https://basemaps.cartocdn.com/rastertiles/dark_all/{z}/{x}/{y}{r}.png?key=${encodeURIComponent(cartoKey)}`,
       { ...common, className: 'tiles-stealth', attribution: '&copy; OpenStreetMap contributors &copy; CARTO' }
-    ).addTo(map);
+    );
   } else {
-    L.tileLayer('https://tile.openstreetmap.org/{z}/{x}/{y}.png', {
+    layer = L.tileLayer('https://tile.openstreetmap.org/{z}/{x}/{y}.png', {
       ...common,
       className: 'tiles-dark',
       attribution: '&copy; <a href="https://www.openstreetmap.org/copyright">OpenStreetMap</a> contributors',
-    }).addTo(map);
+    });
   }
+  layer.on('tileerror', ({ tile }) => {
+    if (tile.getAttribute('src')) retryTile(tile);
+  });
+  layer.addTo(map);
+}
+
+// Retry a failed tile up to 4 times (1.5s, 3s, 6s, 12s). The retry loads
+// into a detached Image first and only hands the URL back to the tile once
+// it has succeeded, so a failing retry can't re-fire Leaflet's tileerror
+// and stack up timers. Same URL, no cache-busting (OSM tile policy).
+const TILE_RETRY_MAX = 4;
+function retryTile(tile) {
+  const attempt = (tile._fsRetries || 0) + 1;
+  if (attempt > TILE_RETRY_MAX || !tile.src) return;
+  tile._fsRetries = attempt;
+  const url = tile.src;
+  setTimeout(() => {
+    if (!tile.isConnected || tile.src !== url) return; // tile scrolled away / reused
+    const probe = new window.Image();
+    probe.referrerPolicy = 'strict-origin-when-cross-origin';
+    probe.onload = () => {
+      if (!tile.isConnected) return;
+      tile.src = ''; // force the <img> to reload the (now cached) URL
+      tile.src = url;
+    };
+    probe.onerror = () => retryTile(tile);
+    probe.src = url;
+  }, 1500 * 2 ** (attempt - 1));
 }
 fetch('/api/me')
   .then((r) => (r.ok ? r.json() : {}))
@@ -339,14 +384,129 @@ function upsertMarker(v) {
     marker.setPopupContent(popupHtml(v));
   }
   marker.setZIndexOffset(state.selectedId === v.id ? 1000 : status === 'moving' ? 100 : 0);
-  const visible = markerVisible(v);
+  const visible = markerVisible(v) && !clusters.memberOf.has(v.id);
   if (visible && !map.hasLayer(marker)) marker.addTo(map);
   if (!visible && map.hasLayer(marker)) map.removeLayer(marker);
 }
 
 function refreshAllMarkers() {
+  recluster();
   for (const v of state.vehicles.values()) upsertMarker(v);
 }
+
+// ---------------------------------------------------------------------------
+// Grouping — when zoomed out, vehicles whose icons would overlap on screen
+// are drawn as one group marker showing the count, with a ring split by
+// status (travelling / idling / parked). Clicking it zooms in to separate
+// them; if they share a spot (e.g. parked at the same depot), it lists them.
+// The selected vehicle is never grouped, so its popup stays put.
+// ---------------------------------------------------------------------------
+const CLUSTER_RADIUS_PX = 46; // ≈ icon + plate tag footprint
+const CLUSTER_RADIUS_CLOSE_PX = 20; // from zoom 14 up: only near-identical spots
+const CLUSTER_CLOSE_ZOOM = 14;
+const clusters = { memberOf: new Map(), markers: new Map() }; // vehicleId -> key, key -> marker
+
+function recluster() {
+  const zoom = map.getZoom();
+  const radius = zoom >= CLUSTER_CLOSE_ZOOM ? CLUSTER_RADIUS_CLOSE_PX : CLUSTER_RADIUS_PX;
+  const candidates = Array.from(state.vehicles.values())
+    .filter((v) => markerVisible(v) && v.id !== state.selectedId)
+    .sort((a, b) => a.id.localeCompare(b.id));
+
+  // Greedy grouping in projected pixel space at the current zoom (pan
+  // doesn't change it, so this only needs re-running on zoom/position).
+  const groups = [];
+  for (const v of candidates) {
+    const p = map.project([v.lat, v.lng], zoom);
+    let g = groups.find((gr) => gr.center.distanceTo(p) <= radius);
+    if (!g) {
+      g = { center: p, sum: L.point(0, 0), members: [] };
+      groups.push(g);
+    }
+    g.members.push(v);
+    g.sum = g.sum.add(p);
+    g.center = g.sum.divideBy(g.members.length);
+  }
+
+  clusters.memberOf.clear();
+  const live = new Set();
+  for (const g of groups) {
+    if (g.members.length < 2) continue;
+    const key = g.members.map((v) => v.id).join('|');
+    live.add(key);
+    for (const v of g.members) clusters.memberOf.set(v.id, key);
+    const latlng = map.unproject(g.center, zoom);
+    const counts = { moving: 0, idling: 0, parked: 0 };
+    for (const v of g.members) counts[normStatus(v.status)] += 1;
+    const sig = `${counts.moving}/${counts.idling}/${counts.parked}`;
+    let m = clusters.markers.get(key);
+    if (!m) {
+      m = L.marker(latlng, { keyboard: true, zIndexOffset: 500 });
+      m.on('click', () => openCluster(key));
+      clusters.markers.set(key, m);
+    } else {
+      m.setLatLng(latlng);
+    }
+    if (m._fsSig !== sig) {
+      m.setIcon(clusterIcon(g.members.length, counts));
+      m._fsSig = sig;
+    }
+    m._fsMembers = g.members.map((v) => v.id);
+    m.options.title = `${g.members.length} vehicles`;
+    if (!map.hasLayer(m)) m.addTo(map);
+  }
+  for (const [key, m] of clusters.markers) {
+    if (!live.has(key)) {
+      map.removeLayer(m);
+      clusters.markers.delete(key);
+    }
+  }
+}
+
+function clusterIcon(n, counts) {
+  // Ring segments proportional to each status, drawn with a conic gradient.
+  const total = counts.moving + counts.idling + counts.parked;
+  const a = (counts.moving / total) * 360;
+  const b = a + (counts.idling / total) * 360;
+  const ring = `conic-gradient(var(--sl-green) 0 ${a}deg, var(--sl-sand) ${a}deg ${b}deg, var(--sl-green-dim) ${b}deg 360deg)`;
+  const size = n >= 50 ? 48 : n >= 10 ? 42 : 36;
+  return L.divIcon({
+    className: 'vm-wrap',
+    html: `<div class="vc" style="--vc-ring: ${ring}; width:${size}px; height:${size}px"><span class="vc-count">${n}</span></div>`,
+    iconSize: [size, size],
+    iconAnchor: [size / 2, size / 2],
+    popupAnchor: [0, -size / 2],
+  });
+}
+
+function openCluster(key) {
+  const m = clusters.markers.get(key);
+  if (!m) return;
+  const members = m._fsMembers.map((id) => state.vehicles.get(id)).filter(Boolean);
+  const bounds = L.latLngBounds(members.map((v) => [v.lat, v.lng]));
+  const sameSpot = map.project(bounds.getNorthEast(), map.getMaxZoom()).distanceTo(map.project(bounds.getSouthWest(), map.getMaxZoom())) < 30;
+  if (!sameSpot && map.getZoom() < map.getMaxZoom()) {
+    map.fitBounds(bounds, { padding: [60, 60], maxZoom: Math.max(map.getZoom() + 2, CLUSTER_CLOSE_ZOOM + 1), paddingBottomRight: fleetPanelOffset() });
+    return;
+  }
+  // Vehicles at (almost) the same spot — zooming won't separate them, so
+  // list them and let the user pick one.
+  const items = members
+    .sort((a, b) => (plateOf(a) || a.label).localeCompare(plateOf(b) || b.label))
+    .map((v) => `<li><button type="button" class="vc-pick" data-id="${escapeHtml(v.id)}">${plateBadge(v)}<span>${escapeHtml(STATUS_LABEL[normStatus(v.status)])}</span></button></li>`)
+    .join('');
+  L.popup({ className: 'vp-popup', minWidth: 200 })
+    .setLatLng(m.getLatLng())
+    .setContent(`<div class="vp"><div class="vp-label">${members.length} vehicles here</div><ul class="vc-list">${items}</ul></div>`)
+    .openOn(map);
+}
+
+document.getElementById('map').addEventListener('click', (e) => {
+  const btn = e.target.closest('.vc-pick');
+  if (btn) selectVehicle(btn.dataset.id, { pan: false });
+});
+
+map.on('zoomend', refreshAllMarkers);
 
 function selectVehicle(id, { pan = true } = {}) {
   state.selectedId = id;
@@ -628,7 +788,7 @@ async function loadFleetTab() {
       const live = state.vehicles.get(data.id);
       if (live) {
         live.plate = data.plate;
-        upsertMarker(live);
+        refreshAllMarkers();
         renderVehicleList();
       }
       loadFleetTab();
@@ -805,17 +965,15 @@ function connect() {
       for (const v of msg.vehicles) state.vehicles.set(v.id, v);
       state.geofences = msg.geofences;
       state.alerts = msg.alerts;
-      for (const v of msg.vehicles) upsertMarker(v);
+      refreshAllMarkers();
       renderGeofences();
       renderGeofenceList();
       renderVehicleList();
       renderAlerts();
       if (msg.vehicles.length) fitFleet();
     } else if (msg.type === 'positions') {
-      for (const v of msg.vehicles) {
-        state.vehicles.set(v.id, v);
-        upsertMarker(v);
-      }
+      for (const v of msg.vehicles) state.vehicles.set(v.id, v);
+      refreshAllMarkers();
       renderVehicleList();
     } else if (msg.type === 'alert') {
       state.alerts.unshift(msg.alert);

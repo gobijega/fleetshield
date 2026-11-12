@@ -347,8 +347,57 @@ body.map-mode #tab-map { height: 100%; }
    Stealth JEGASEC theme for the Live Map — overrides the generic panel
    styling above for everything that sits on or over the map.
 --------------------------------------------------------------------- */
-#map { background: var(--sl-bg); }
-.map-stage { background: var(--sl-bg); }
+/* Matches the tinted land colour, so a tile that is still loading (or
+   being retried) reads as dark terrain rather than a black hole. */
+#map, #map.leaflet-container { background: #07100a; }
+.map-stage { background: var(--sl-bg); overflow: hidden; }
+
+/* Grouped vehicles (zoomed out): count in a black core, status ring
+   around it — green travelling, sand idling, dim green parked. */
+.vc {
+  position: relative;
+  border-radius: 50%;
+  background: var(--vc-ring);
+  box-shadow: 0 0 0 1px #010402, 0 0 14px rgba(0,255,65,0.35), 0 2px 8px rgba(0,0,0,0.8);
+  cursor: pointer;
+}
+.vc::before {
+  content: '';
+  position: absolute;
+  inset: 4px;
+  border-radius: 50%;
+  background: #010402;
+}
+.vc-count {
+  position: absolute;
+  inset: 0;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-family: 'IBM Plex Mono', monospace;
+  font-weight: 600;
+  font-size: 13px;
+  color: var(--sl-green);
+  text-shadow: 0 0 6px rgba(0,255,65,0.45);
+}
+.vc:hover { box-shadow: 0 0 0 1px #010402, 0 0 0 3px var(--sl-green-dim), 0 0 18px rgba(0,255,65,0.5); }
+.vc-list { list-style: none; margin: 0; padding: 0; display: flex; flex-direction: column; gap: 4px; max-height: 240px; overflow-y: auto; }
+.vc-pick {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  width: 100%;
+  background: transparent;
+  border: 1px solid transparent;
+  color: var(--sl-muted);
+  font-family: 'IBM Plex Mono', monospace;
+  font-size: 11px;
+  text-transform: uppercase;
+  padding: 5px 6px;
+  cursor: pointer;
+}
+.vc-pick:hover, .vc-pick:focus-visible { border-color: var(--sl-line-bright); background: rgba(0,255,65,0.05); color: var(--sl-text); outline: none; }
 
 /* Plates: blacked-out plate, phosphor characters, HUD-style edge. */
 .plate {
@@ -601,8 +650,8 @@ body.map-mode #tab-map { height: 100%; }
    flattened to greyscale, then tinted to a dim phosphor green so the
    vehicles are the brightest thing on screen. CARTO Dark Matter (used
    when a key is configured) is already dark and only gets the tint. */
-.tiles-dark { filter: invert(1) grayscale(1) brightness(0.62) contrast(1.25) sepia(1) hue-rotate(68deg) saturate(2.2) brightness(0.85); }
-.tiles-stealth { filter: grayscale(1) sepia(1) hue-rotate(68deg) saturate(2) brightness(0.85) contrast(1.1); }
+.tiles-dark .leaflet-tile { filter: invert(1) grayscale(1) brightness(0.62) contrast(1.25) sepia(1) hue-rotate(68deg) saturate(2.2) brightness(0.85); }
+.tiles-stealth .leaflet-tile { filter: grayscale(1) sepia(1) hue-rotate(68deg) saturate(2) brightness(0.85) contrast(1.1); }
 .leaflet-control-attribution { background: rgba(0, 0, 0, 0.7) !important; color: var(--muted); }
 .leaflet-control-attribution a { color: var(--muted); }
 
