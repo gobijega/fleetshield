@@ -12,7 +12,17 @@
   --amber: #ffb020;
   --red: #ff4d5e;
   --info: #00ff41;
-  --parked: #4ea1ff;
+  --parked: #2f8f4e;
+  /* Stealth map palette — black, phosphor green, tactical sand. */
+  --sl-bg: #030604;
+  --sl-glass: rgba(4, 9, 6, 0.9);
+  --sl-line: #12301c;
+  --sl-line-bright: #1d4d2c;
+  --sl-text: #c9f5d4;
+  --sl-muted: #5f8a6b;
+  --sl-green: #00ff41;
+  --sl-green-dim: #0f9a3a;
+  --sl-sand: #c8b46a;
 }
 
 * { box-sizing: border-box; }
@@ -107,7 +117,7 @@ main { padding: 20px 24px 40px; max-width: 1400px; margin: 0 auto; }
 }
 .status-moving { background: rgba(0,255,65,0.12); color: var(--green); }
 .status-idling { background: rgba(255,176,32,0.12); color: var(--amber); }
-.status-parked { background: rgba(78,161,255,0.14); color: var(--parked); }
+.status-parked { background: rgba(47,143,78,0.16); color: #6fcf8b; }
 
 /* ---------------------------------------------------------------------
    Live Map — map fills the viewport below the tabs; fleet list and
@@ -333,6 +343,118 @@ body.map-mode #tab-map { height: 100%; }
 .plate-edit input { background: var(--panel-2); border: 1px solid var(--border); border-radius: 6px; padding: 6px 8px; color: var(--text); width: 140px; }
 .geofence-card .plate-edit .btn-plate-save { color: #04120f; background: var(--accent); border-color: var(--accent); }
 
+/* ---------------------------------------------------------------------
+   Stealth JEGASEC theme for the Live Map — overrides the generic panel
+   styling above for everything that sits on or over the map.
+--------------------------------------------------------------------- */
+#map { background: var(--sl-bg); }
+.map-stage { background: var(--sl-bg); }
+
+/* Plates: blacked-out plate, phosphor characters, HUD-style edge. */
+.plate {
+  color: var(--sl-green);
+  background: #010402;
+  border: 1px solid var(--sl-green-dim);
+  box-shadow: inset 0 0 0 1px rgba(0,255,65,0.08), 0 0 6px rgba(0,255,65,0.12);
+  text-shadow: 0 0 6px rgba(0,255,65,0.35);
+}
+.plate--missing { color: var(--sl-sand); border: 1px dashed var(--sl-sand); background: transparent; box-shadow: none; text-shadow: none; }
+
+/* Floating chrome */
+.st-chip, .st-fit {
+  background: var(--sl-glass);
+  border-color: var(--sl-line-bright);
+  color: var(--sl-text);
+  border-radius: 2px;
+  font-family: 'IBM Plex Mono', monospace;
+  font-size: 11.5px;
+  text-transform: uppercase;
+  letter-spacing: 0.06em;
+}
+.st-chip b { color: var(--sl-muted); }
+.st-chip:hover, .st-fit:hover { border-color: var(--sl-green-dim); }
+.st-chip.active, .st-chip.st-moving.active, .st-chip.st-idling.active, .st-chip.st-parked.active {
+  border-color: var(--sl-green);
+  box-shadow: 0 0 0 1px rgba(0,255,65,0.15), 0 0 10px rgba(0,255,65,0.12);
+}
+.st-chip.active b { color: var(--sl-green); }
+.st-fit { color: var(--sl-muted); }
+.st-moving .st-dot { background: var(--sl-green); box-shadow: 0 0 6px rgba(0,255,65,0.6); }
+.st-idling .st-dot { background: var(--sl-sand); }
+.st-parked .st-dot { background: transparent; border: 1.5px solid var(--sl-green-dim); border-radius: 2px; }
+
+.fleet-panel {
+  background: var(--sl-glass);
+  border-color: var(--sl-line-bright);
+  border-radius: 2px;
+  box-shadow: 0 0 0 1px rgba(0,255,65,0.04), 0 8px 30px rgba(0,0,0,0.6);
+}
+.fleet-panel::before {
+  /* thin phosphor edge along the top, like a HUD frame */
+  content: '';
+  position: absolute;
+  top: 0; left: 0; right: 0;
+  height: 1px;
+  background: linear-gradient(90deg, transparent, var(--sl-green-dim), transparent);
+}
+.fleet-panel-head h3 { color: var(--sl-text); font-family: 'IBM Plex Mono', monospace; text-transform: uppercase; letter-spacing: 0.12em; font-size: 11.5px; }
+.fleet-count { color: var(--sl-green); }
+.fleet-toggle { border-color: var(--sl-line-bright); color: var(--sl-muted); }
+.fleet-search input { background: #010402; border-color: var(--sl-line); color: var(--sl-text); border-radius: 2px; font-family: 'IBM Plex Mono', monospace; }
+.fleet-search input::placeholder { color: var(--sl-muted); }
+.fleet-search input:focus { border-color: var(--sl-green-dim); box-shadow: 0 0 0 1px rgba(0,255,65,0.15); }
+.vehicle-item { border-radius: 2px; }
+.vehicle-item:hover { background: rgba(0,255,65,0.04); }
+.vehicle-item.is-selected { background: rgba(0,255,65,0.07); border-color: var(--sl-line-bright); }
+.vi-row2 { color: var(--sl-muted); }
+.vi-status { color: var(--sl-muted); font-family: 'IBM Plex Mono', monospace; font-size: 10.5px; text-transform: uppercase; letter-spacing: 0.04em; }
+.vi--moving .vi-status { color: var(--sl-green); }
+.vi--idling .vi-status { color: var(--sl-sand); }
+.vi--parked .vi-status { color: var(--sl-green-dim); }
+
+/* Markers
+   travelling: solid phosphor disc, black heading arrow, soft glow
+   idling:     black disc, sand ring + glyph, slow pulse (engine on)
+   parked:     black square, dim green outline + "P" (ignition off)    */
+.vm-pin { border: 1.5px solid #010402; box-shadow: 0 0 0 1px rgba(0,0,0,0.9), 0 2px 6px rgba(0,0,0,0.8); }
+.vm--moving .vm-pin { background: var(--sl-green); box-shadow: 0 0 0 1px #010402, 0 0 12px rgba(0,255,65,0.55); }
+.vm--moving .vm-glyph svg { fill: #010402; }
+.vm--idling .vm-pin { background: #010402; border: 2px solid var(--sl-sand); }
+.vm--idling .vm-glyph svg { fill: var(--sl-sand); }
+.vm--idling .vm-pin::after { border-color: var(--sl-sand); }
+.vm--parked .vm-pin { background: #010402; border: 1.5px solid var(--sl-green-dim); border-radius: 4px; box-shadow: 0 2px 6px rgba(0,0,0,0.8); }
+.vm--parked .vm-glyph svg { fill: var(--sl-green-dim); }
+.vm.is-selected .vm-pin { box-shadow: 0 0 0 2px #010402, 0 0 0 4px var(--sl-green), 0 0 18px rgba(0,255,65,0.6); }
+
+.vm-plate {
+  color: var(--sl-green);
+  background: rgba(1, 4, 2, 0.92);
+  border: 1px solid var(--sl-green-dim);
+  border-radius: 1px;
+  text-shadow: 0 0 6px rgba(0,255,65,0.4);
+  box-shadow: 0 1px 6px rgba(0,0,0,0.8);
+}
+.vm--idling .vm-plate { color: var(--sl-sand); border-color: rgba(200,180,106,0.6); text-shadow: none; }
+.vm--parked .vm-plate { color: #6fcf8b; border-color: var(--sl-line-bright); text-shadow: none; }
+.vm-plate--missing { color: var(--sl-sand) !important; border: 1px dashed var(--sl-sand) !important; }
+.vm.is-selected .vm-plate { outline: none; border-color: var(--sl-green); box-shadow: 0 0 10px rgba(0,255,65,0.45); }
+
+/* Popup */
+.leaflet-container .leaflet-popup-content-wrapper,
+.leaflet-container .leaflet-popup-tip { background: var(--sl-glass); color: var(--sl-text); }
+.leaflet-container .leaflet-popup-content-wrapper { border: 1px solid var(--sl-line-bright); border-radius: 2px; box-shadow: 0 0 18px rgba(0,0,0,0.7); }
+.leaflet-container a.leaflet-popup-close-button { color: var(--sl-muted); }
+.vp-label { color: var(--sl-text); }
+.vp-grid dt, .vp-muted { color: var(--sl-muted); }
+.vp-grid dd { font-family: 'IBM Plex Mono', monospace; font-size: 12px; }
+
+/* Leaflet controls */
+.leaflet-bar a, .leaflet-bar a:hover { background: var(--sl-glass); color: var(--sl-green); border-bottom-color: var(--sl-line-bright); }
+.leaflet-bar { border: 1px solid var(--sl-line-bright) !important; border-radius: 2px !important; box-shadow: none !important; }
+.leaflet-bar a:hover { background: rgba(0,255,65,0.08); }
+.leaflet-container .leaflet-control-attribution { background: rgba(1,4,2,0.75) !important; color: var(--sl-muted); }
+.leaflet-container .leaflet-control-attribution a { color: var(--sl-muted); }
+
 .panel-header { display: flex; justify-content: space-between; align-items: center; }
 .panel-header select, #alertFilter {
   background: var(--panel-2);
@@ -475,8 +597,12 @@ body.map-mode #tab-map { height: 100%; }
 
 .leaflet-popup-content-wrapper { background: var(--panel-2); color: var(--text); }
 .leaflet-popup-tip { background: var(--panel-2); }
-/* Darkened OpenStreetMap tiles (see addBaseLayer in app.js) */
-.tiles-dark { filter: invert(1) hue-rotate(180deg) brightness(0.85) contrast(0.9) saturate(0.35); }
+/* Stealth base map (see addBaseLayer in app.js): OSM tiles are inverted,
+   flattened to greyscale, then tinted to a dim phosphor green so the
+   vehicles are the brightest thing on screen. CARTO Dark Matter (used
+   when a key is configured) is already dark and only gets the tint. */
+.tiles-dark { filter: invert(1) grayscale(1) brightness(0.62) contrast(1.25) sepia(1) hue-rotate(68deg) saturate(2.2) brightness(0.85); }
+.tiles-stealth { filter: grayscale(1) sepia(1) hue-rotate(68deg) saturate(2) brightness(0.85) contrast(1.1); }
 .leaflet-control-attribution { background: rgba(0, 0, 0, 0.7) !important; color: var(--muted); }
 .leaflet-control-attribution a { color: var(--muted); }
 
