@@ -15,7 +15,7 @@ if (!password) {
 if (password.length < MIN_LENGTH) {
   console.error(
     `Password is too short (${password.length} chars) — this account protects a fleet-wide ` +
-    `dashboard for a council/utility/government customer, so use at least ${MIN_LENGTH} characters. ` +
+    `dashboard for a utility, contractor or government customer, so use at least ${MIN_LENGTH} characters. ` +
     `A passphrase of 4-5 random words is easier to remember than it is to guess.`
   );
   process.exit(1);

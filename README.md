@@ -4,7 +4,7 @@ Fleet Shield is a **hardware-agnostic middleware platform**, not a hardware prod
 sits between whatever GPS/telematics hardware a fleet already has fitted — OBD-II
 dongles, Teltonika, Queclink, Digital Matter, or any device/API that can push a position
 feed — and turns that raw data into the safety, compliance, utilisation, and emissions
-picture that local councils, utilities, and government entities are accountable for.
+picture that utilities, contractors, and government entities are accountable for.
 The pitch to these organisations is deliberately not "rip out your existing hardware and
 buy ours": if a fleet already has trackers installed, Fleet Shield ingests that feed
 directly; if it doesn't, any compatible off-the-shelf device works. Either way, the
@@ -19,7 +19,7 @@ the one piece that gets pointed at a real device/API feed in production, per the
 
 ## Who it's for
 
-Local councils, water/utility authorities, and other government entities that operate
+Water and energy utilities, infrastructure contractors, and government entities that operate
 vehicle fleets and are accountable for how those fleets are used — typically already
 running some mix of telematics hardware across depots, and needing a single software
 layer over the top for compliance reporting, safety, and emissions, rather than another
@@ -28,7 +28,7 @@ hardware contract.
 ## What it demonstrates
 
 Mapped against Goulburn-Murray Water's stated purpose for this tender (representative of
-the broader council/utility/government use case):
+the broader utility/contractor/government use case):
 
 - **Fleet safety & compliance** — driver-behaviour alerts (harsh braking, harsh
   acceleration, speeding, excessive idling), a per-vehicle safety score derived from
@@ -125,7 +125,7 @@ from the database on boot).
 
 ## Security
 
-Fleet Shield is aimed at councils, utilities, and government fleets, so the security
+Fleet Shield is aimed at utilities, contractors, and government fleets, so the security
 posture is deliberately more than "add a login page." What's actually implemented:
 
 - **Authentication**: bcrypt-hashed password, brute-force rate limiting (10 attempts /
@@ -178,7 +178,7 @@ are hardcoded constants (`fs.sid`, `fs.csrf`), never derived from user input.
 
 ### Not yet done
 
-One admin account per organization (no per-org multi-user roles yet — a council with
+One admin account per organization (no per-org multi-user roles yet — an organisation with
 several staff who need dashboard access still shares one login), no formal penetration
 test, no IRAP/government security certification.
 
@@ -361,7 +361,7 @@ the "internal engineering prototype" label shown next to "Secure file import" on
   broker, or OEM API — feeding the same vehicle state shape, or build out the CSV
   prototype above into a production ingestion path (see its documented limitations).
   Because the pipeline is hardware-agnostic by design, this should support multiple
-  concurrent hardware vendors/protocols per fleet (a council rarely has one uniform
+  concurrent hardware vendors/protocols per fleet (an organisation rarely has one uniform
   hardware base across every depot), not just one.
 - Multi-tenant fleet scoping and self-service billing are now in place (see "Billing"
   above) — the remaining gap is per-org role-based access (multiple staff per customer
