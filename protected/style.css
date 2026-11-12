@@ -657,6 +657,40 @@ body.map-mode #tab-map { height: 100%; }
 .leaflet-control-attribution { background: rgba(0, 0, 0, 0.7) !important; color: var(--muted); }
 .leaflet-control-attribution a { color: var(--muted); }
 
+/* Assurance tab */
+.as-intro { max-width: 780px; }
+.as-sim { font-size: 12.5px; color: var(--sl-sand); border: 1px dashed rgba(200,180,106,0.5); padding: 8px 12px; margin: 8px 0 0; max-width: 900px; }
+.as-btn, .as-link {
+  font-family: 'IBM Plex Mono', monospace;
+  font-size: 11.5px;
+  text-transform: uppercase;
+  letter-spacing: 0.05em;
+  color: var(--accent);
+  text-decoration: none;
+  border: 1px solid rgba(0,255,65,0.35);
+  padding: 7px 12px;
+  white-space: nowrap;
+}
+.as-link { padding: 4px 8px; font-size: 10.5px; }
+.as-btn:hover, .as-link:hover { border-color: var(--accent); background: var(--accent-dim); }
+.as-chip { display: inline-block; font-size: 11px; color: var(--sl-sand); border: 1px solid rgba(200,180,106,0.35); padding: 1px 6px; margin: 1px 0; white-space: nowrap; }
+.as-h3 { margin: 24px 0 0; font-size: 14px; color: var(--muted); }
+.as-method { margin-top: 20px; }
+.as-trust.as-trust--good .value { color: var(--green); }
+.as-trust.as-trust--medium .value { color: var(--amber); }
+.as-trust.as-trust--high .value { color: var(--red); }
+.vi-warn { color: var(--sl-sand); }
+/* Map: vehicle whose device has lost GPS or power — dashed sand ring and dimmed */
+.vm--degraded .vm-pin { opacity: 0.55; }
+.vm--degraded::before {
+  content: '';
+  position: absolute;
+  inset: -5px;
+  border: 1.5px dashed var(--sl-sand);
+  border-radius: 50%;
+}
+.vm--degraded .vm-plate { border-style: dashed; }
+
 /* ---------------------------------------------------------------------
    Responsive — tablet (≤900px) and phone (≤600px)
    Layout strategy: two-column panels (map+list, reports, geofencing)
