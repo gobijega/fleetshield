@@ -30,7 +30,9 @@ const PROHIBITED_PATTERNS = [
   /\btrusted by\b/i,
   /\bproduction[\s-]ready\b/i,
   /\bcancel anytime\b/i,
-  /active council fleet\b(?!\s+demonstrating)/i, // "Simulated ... council fleet demonstrating..." is fine; a bare claim is not
+  // Founder decision (Nov 2026): no reference to local councils anywhere in
+  // served copy (conflict of interest with a planned council candidacy).
+  /\bcouncils?\b/i,
   // Fleet Shield is provided by JEGASEC PTY LTD (ACN 701 612 277). Guard
   // against the superseded sole-trader identity creeping back in, and
   // against inventing a company name that doesn't exist.

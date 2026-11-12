@@ -147,9 +147,9 @@ describe('validateSignupInput — server-side consent and data validation', () =
 
   function validBody(overrides = {}) {
     return {
-      orgName: 'Example Council',
+      orgName: 'Example Utility',
       contactName: 'Jordan Smith',
-      contactEmail: 'jordan@example-council.gov.au',
+      contactEmail: 'jordan@example-utility.com.au',
       username: 'jordan.smith',
       password: 'a-genuinely-long-password',
       confirmPassword: 'a-genuinely-long-password',

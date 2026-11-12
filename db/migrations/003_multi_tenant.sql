@@ -1,6 +1,6 @@
 -- Multi-tenant accounts + subscription billing
 --
--- Each customer (council/utility/gov entity) that signs up gets its own
+-- Each customer (utility/contractor/gov entity) that signs up gets its own
 -- organization row, its own admin login, and its own isolated fleet data.
 -- The pre-existing single-admin deployment (driven by ADMIN_USERNAME /
 -- ADMIN_PASSWORD_HASH env vars) is preserved as a "default" organization so
