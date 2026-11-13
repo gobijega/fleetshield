@@ -1021,9 +1021,11 @@ body.rp-drawer-open { overflow: hidden; }
 @media (max-width: 1100px) {
   .rp-grid { grid-template-columns: repeat(2, minmax(0, 1fr)); }
   .rp-grid--wide { grid-template-columns: 1fr; }
+  .rp-grid--solo { grid-template-columns: 1fr; }
 }
 @media (max-width: 700px) {
   .rp-grid--half { grid-template-columns: 1fr; }
+  .rp-grid--solo { grid-template-columns: 1fr; }
   .rp-chart--overview { height: 220px; }
   .rp-grid { grid-template-columns: 1fr; }
   .rp-title { font-size: 20px; }
@@ -1073,6 +1075,7 @@ body.rp-drawer-open { overflow: hidden; }
   .rp-kpi-value { font-size: 18pt; }
   .rp-grid { grid-template-columns: 1fr 1fr; }
   .rp-grid--wide { grid-template-columns: 1fr; }
+  .rp-grid--solo { grid-template-columns: 1fr; }
   .rp-card, .rp-kpis, .rp-finding, .rp-table tr { break-inside: avoid; }
   .rp-table-card { break-before: page; }
   /* Charts keep their on-screen bitmap; scale it to the paper column
