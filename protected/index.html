@@ -180,61 +180,82 @@
       <p class="rp-error" id="rpError" role="alert" hidden></p>
       <p class="rp-note" id="rpCoverage" hidden></p>
 
-      <div class="rp-kpis" id="rpKpis"></div>
+      <nav class="rp-subnav" aria-label="Report sections">
+        <div role="tablist" id="rpSubnav">
+          <button type="button" role="tab" id="rpTab-overview" aria-controls="rpView-overview" aria-selected="true" data-view="overview" class="active">Overview</button>
+          <button type="button" role="tab" id="rpTab-safety" aria-controls="rpView-safety" aria-selected="false" data-view="safety" tabindex="-1">Safety<span class="rp-subnav-count" id="rpCountSafety" hidden></span></button>
+          <button type="button" role="tab" id="rpTab-emissions" aria-controls="rpView-emissions" aria-selected="false" data-view="emissions" tabindex="-1">Emissions &amp; energy</button>
+          <button type="button" role="tab" id="rpTab-vehicles" aria-controls="rpView-vehicles" aria-selected="false" data-view="vehicles" tabindex="-1">Vehicles<span class="rp-subnav-count" id="rpCountVehicles" hidden></span></button>
+        </div>
+      </nav>
 
-      <section class="rp-card rp-findings-card" aria-labelledby="rpFindingsTitle">
-        <h3 id="rpFindingsTitle">Findings</h3>
-        <ol class="rp-findings" id="rpFindings"></ol>
-      </section>
+      <div class="rp-view" id="rpView-overview" role="tabpanel" aria-labelledby="rpTab-overview">
+        <div class="rp-kpis" id="rpKpis"></div>
 
-      <div class="rp-grid">
-        <section class="rp-card rp-daily-card">
-          <h3>Distance per day</h3>
-          <p class="rp-card-sub">Kilometres travelled, all vehicles in scope</p>
-          <div class="rp-chart"><canvas id="rpDistance" role="img" aria-label="Bar chart of fleet distance per day. Values are in the daily CSV."></canvas></div>
+        <section class="rp-card rp-findings-card" aria-labelledby="rpFindingsTitle">
+          <h3 id="rpFindingsTitle">Findings</h3>
+          <ol class="rp-findings" id="rpFindings"></ol>
         </section>
-        <section class="rp-card rp-daily-card">
-          <h3>CO₂ per day</h3>
-          <p class="rp-card-sub">Kilograms CO₂-e from fuel and charging</p>
-          <div class="rp-chart"><canvas id="rpCo2" role="img" aria-label="Bar chart of fleet CO2 per day. Values are in the daily CSV."></canvas></div>
-        </section>
-        <section class="rp-card rp-daily-card">
-          <h3>Safety events per day</h3>
-          <p class="rp-card-sub">Driver-behaviour and geofence alerts, by severity</p>
-          <div class="rp-chart"><canvas id="rpEvents" role="img" aria-label="Stacked bar chart of alerts per day by severity. Values are in the daily CSV."></canvas></div>
-        </section>
-        <section class="rp-card">
-          <h3>Events by type</h3>
-          <p class="rp-card-sub">Ordered by severity-weighted impact</p>
-          <div class="rp-chart" id="rpTypesWrap"><canvas id="rpTypes" role="img" aria-label="Stacked bar chart of alert counts by type and severity."></canvas></div>
-        </section>
-        <section class="rp-card">
-          <h3>Engine-on time by vehicle</h3>
-          <p class="rp-card-sub">Hours moving versus idling</p>
-          <div class="rp-chart" id="rpEngineWrap"><canvas id="rpEngine" role="img" aria-label="Stacked bar chart of moving and idling hours per vehicle. Values are in the vehicle table."></canvas></div>
-        </section>
-        <section class="rp-card">
-          <h3>Emissions intensity by vehicle</h3>
-          <p class="rp-card-sub">Grams CO₂-e per kilometre, against the fleet average</p>
-          <div class="rp-chart" id="rpIntensityWrap"><canvas id="rpIntensity" role="img" aria-label="Bar chart of CO2 grams per kilometre per vehicle. Values are in the vehicle table."></canvas></div>
-        </section>
+
+        <div class="rp-grid rp-grid--solo">
+          <section class="rp-card rp-daily-card">
+            <h3>Distance per day</h3>
+            <p class="rp-card-sub">Kilometres travelled, all vehicles in scope. Safety, emissions and per-vehicle detail are in the sections above.</p>
+            <div class="rp-chart rp-chart--overview"><canvas id="rpDistance" role="img" aria-label="Bar chart of fleet distance per day. Values are in the daily CSV."></canvas></div>
+          </section>
+        </div>
       </div>
 
-      <div class="rp-grid rp-grid--wide">
-        <section class="rp-card">
-          <h3>When safety events happen</h3>
-          <p class="rp-card-sub">High, medium and low severity events by weekday and hour, local time</p>
-          <div class="rp-heat-scroll"><div class="rp-heat" id="rpHeat" role="grid" aria-label="Safety events by weekday and hour"></div></div>
-          <div class="rp-heat-legend" id="rpHeatLegend"></div>
-        </section>
-        <section class="rp-card">
-          <h3>Emissions by fuel type</h3>
-          <p class="rp-card-sub">Share of fleet CO₂-e</p>
-          <div class="rp-fuel-bar" id="rpFuelBar" aria-hidden="true"></div>
-          <div class="rp-fuel-rows" id="rpFuelRows"></div>
-        </section>
+      <div class="rp-view" id="rpView-safety" role="tabpanel" aria-labelledby="rpTab-safety" hidden>
+        <div class="rp-grid rp-grid--half">
+          <section class="rp-card rp-daily-card">
+            <h3>Safety events per day</h3>
+            <p class="rp-card-sub">Driver-behaviour and geofence alerts, by severity</p>
+            <div class="rp-chart"><canvas id="rpEvents" role="img" aria-label="Stacked bar chart of alerts per day by severity. Values are in the daily CSV."></canvas></div>
+          </section>
+          <section class="rp-card">
+            <h3>Events by type</h3>
+            <p class="rp-card-sub">Ordered by severity-weighted impact</p>
+            <div class="rp-chart" id="rpTypesWrap"><canvas id="rpTypes" role="img" aria-label="Stacked bar chart of alert counts by type and severity."></canvas></div>
+          </section>
+        </div>
+        <div class="rp-grid rp-grid--solo">
+          <section class="rp-card">
+            <h3>When safety events happen</h3>
+            <p class="rp-card-sub">High, medium and low severity events by weekday and hour, local time</p>
+            <div class="rp-heat-scroll"><div class="rp-heat" id="rpHeat" role="grid" aria-label="Safety events by weekday and hour"></div></div>
+            <div class="rp-heat-legend" id="rpHeatLegend"></div>
+          </section>
+        </div>
       </div>
 
+      <div class="rp-view" id="rpView-emissions" role="tabpanel" aria-labelledby="rpTab-emissions" hidden>
+        <div class="rp-grid rp-grid--half">
+          <section class="rp-card rp-daily-card">
+            <h3>CO₂ per day</h3>
+            <p class="rp-card-sub">Kilograms CO₂-e from fuel and charging</p>
+            <div class="rp-chart"><canvas id="rpCo2" role="img" aria-label="Bar chart of fleet CO2 per day. Values are in the daily CSV."></canvas></div>
+          </section>
+          <section class="rp-card">
+            <h3>Emissions by fuel type</h3>
+            <p class="rp-card-sub">Share of fleet CO₂-e</p>
+            <div class="rp-fuel-bar" id="rpFuelBar" aria-hidden="true"></div>
+            <div class="rp-fuel-rows" id="rpFuelRows"></div>
+          </section>
+          <section class="rp-card">
+            <h3>Engine-on time by vehicle</h3>
+            <p class="rp-card-sub">Hours moving versus idling</p>
+            <div class="rp-chart" id="rpEngineWrap"><canvas id="rpEngine" role="img" aria-label="Stacked bar chart of moving and idling hours per vehicle. Values are in the vehicle table."></canvas></div>
+          </section>
+          <section class="rp-card">
+            <h3>Emissions intensity by vehicle</h3>
+            <p class="rp-card-sub">Grams CO₂-e per kilometre, against the fleet average</p>
+            <div class="rp-chart" id="rpIntensityWrap"><canvas id="rpIntensity" role="img" aria-label="Bar chart of CO2 grams per kilometre per vehicle. Values are in the vehicle table."></canvas></div>
+          </section>
+        </div>
+      </div>
+
+      <div class="rp-view" id="rpView-vehicles" role="tabpanel" aria-labelledby="rpTab-vehicles" hidden>
       <section class="rp-card rp-table-card" aria-labelledby="rpTableTitle">
         <div class="rp-table-head">
           <div>
@@ -262,6 +283,7 @@
           </table>
         </div>
       </section>
+      </div>
 
       <details class="rp-method">
         <summary>How these figures are calculated</summary>

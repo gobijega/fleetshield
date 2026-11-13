@@ -59,6 +59,7 @@
     query: { preset: '14d', from: null, to: null, fuel: 'all' },
     report: null,
     sort: { key: 'distanceKm', dir: 'desc' },
+    view: 'overview',
     search: '',
     charts: {},
     drawerChart: null,
@@ -119,6 +120,7 @@
       if (saved && typeof saved === 'object') {
         if (saved.query) Object.assign(state.query, saved.query);
         if (saved.sort) state.sort = saved.sort;
+        if (VIEWS.includes(saved.view)) state.view = saved.view;
       }
     } catch {
       /* storage unavailable — defaults are fine */
@@ -128,7 +130,7 @@
     try {
       window.localStorage.setItem(
         STORE_KEY,
-        JSON.stringify({ query: state.query, sort: state.sort })
+        JSON.stringify({ query: state.query, sort: state.sort, view: state.view })
       );
     } catch {
       /* ignore */
@@ -198,7 +200,80 @@
     }
   }
 
+  const VIEWS = ['overview', 'safety', 'emissions', 'vehicles'];
+
+  // Section views — the report is split into Overview / Safety /
+  // Emissions & energy / Vehicles rather than one long page.
+  function setView(view, { focusPanel = false } = {}) {
+    if (!VIEWS.includes(view)) return;
+    if (view !== state.view) {
+      state.view = view;
+      savePrefs();
+    }
+    applyView();
+    if (focusPanel) {
+      const panel = $(`rpView-${view}`);
+      panel.setAttribute('tabindex', '-1');
+      panel.focus({ preventScroll: true });
+      panel.scrollIntoView({ block: 'start', behavior: 'smooth' });
+    }
+  }
+
+  function applyView() {
+    $('rpSubnav')
+      .querySelectorAll('button[data-view]')
+      .forEach((b) => {
+        const on = b.dataset.view === state.view;
+        b.classList.toggle('active', on);
+        b.setAttribute('aria-selected', String(on));
+        b.tabIndex = on ? 0 : -1;
+      });
+    for (const v of VIEWS) $(`rpView-${v}`).hidden = v !== state.view;
+    // Charts created while their section was hidden have a 0×0 canvas;
+    // re-measure them once the section is actually on screen.
+    requestAnimationFrame(() => {
+      document.querySelectorAll(`#rpView-${state.view} canvas`).forEach((cv) => {
+        const chart = window.Chart && window.Chart.getChart(cv);
+        if (chart) chart.resize();
+      });
+    });
+  }
+
+  function updateSubnavCounts() {
+    const r = state.report;
+    const safety = $('rpCountSafety');
+    safety.textContent = num(r.kpis.events.value);
+    safety.hidden = false;
+    const veh = $('rpCountVehicles');
+    veh.textContent = num(r.scope.vehicles);
+    veh.hidden = false;
+  }
+
   function bindToolbar() {
+    const subnav = $('rpSubnav');
+    subnav.addEventListener('click', (e) => {
+      const btn = e.target.closest('button[data-view]');
+      if (btn) setView(btn.dataset.view);
+    });
+    subnav.addEventListener('keydown', (e) => {
+      if (!['ArrowLeft', 'ArrowRight', 'Home', 'End'].includes(e.key)) return;
+      e.preventDefault();
+      const tabs = [...subnav.querySelectorAll('button[data-view]')];
+      let i = tabs.findIndex((t) => t.dataset.view === state.view);
+      if (e.key === 'ArrowLeft') i = (i + tabs.length - 1) % tabs.length;
+      if (e.key === 'ArrowRight') i = (i + 1) % tabs.length;
+      if (e.key === 'Home') i = 0;
+      if (e.key === 'End') i = tabs.length - 1;
+      tabs[i].focus();
+      setView(tabs[i].dataset.view);
+    });
+
+    // KPI tiles double as navigation into the section with the detail.
+    $('rpKpis').addEventListener('click', (e) => {
+      const tile = e.target.closest('[data-goto]');
+      if (tile) setView(tile.dataset.goto, { focusPanel: true });
+    });
+
     $('rpPresets').addEventListener('click', (e) => {
       const btn = e.target.closest('button[data-preset]');
       if (!btn) return;
@@ -290,10 +365,14 @@
       const method = document.querySelector('.rp-method');
       methodWasOpen = method.open;
       method.open = true;
+      // The printed report is the whole report, whatever section is open
+      // on screen: reveal every section before the print re-render.
+      document.querySelectorAll('.rp-view').forEach((v) => (v.hidden = false));
       setTheme('print');
     });
     window.addEventListener('afterprint', () => {
       document.querySelector('.rp-method').open = methodWasOpen;
+      applyView();
       setTheme('screen');
     });
   }
@@ -313,6 +392,8 @@
   // ---------------------------------------------------------------------
   function render() {
     syncToolbar();
+    applyView();
+    updateSubnavCounts();
     renderHeader();
     renderKpis();
     renderFindings();
@@ -406,6 +487,7 @@
     const tiles = [
       {
         label: 'Distance',
+        goto: 'vehicles',
         value: `${compact(k.distanceKm.value)}<small> km</small>`,
         sub: `${num(k.activeVehicles.value)} of ${num(fleetSize)} vehicles active`,
         delta: k.distanceKm,
@@ -413,6 +495,7 @@
       },
       {
         label: 'Utilisation',
+        goto: 'vehicles',
         value:
           k.utilisationPct.value === null
             ? '—'
@@ -423,6 +506,7 @@
       },
       {
         label: 'CO₂ emissions',
+        goto: 'emissions',
         value: `${compact(k.co2Kg.value)}<small> kg</small>`,
         sub:
           k.co2GPerKm.value !== null
@@ -433,6 +517,7 @@
       },
       {
         label: 'Fuel & energy',
+        goto: 'emissions',
         value: `${compact(k.fuelL.value)}<small> L</small>`,
         sub: k.energyKwh.value
           ? `+ ${compact(k.energyKwh.value)} kWh charged (EV)`
@@ -441,6 +526,7 @@
       },
       {
         label: 'Idling',
+        goto: 'emissions',
         value: `${num(k.idleHours.value, k.idleHours.value < 100 ? 1 : 0)}<small> h</small>`,
         sub: `≈ ${num(k.idleFuelL.value)} L fuel burned at idle`,
         delta: k.idleHours,
@@ -448,6 +534,7 @@
       },
       {
         label: 'Safety events',
+        goto: 'safety',
         value: num(k.events.value),
         sub: `${num(k.highSeverity.value)} high severity`,
         delta: k.events,
@@ -455,24 +542,27 @@
       },
       {
         label: 'Risk per 100 km',
+        goto: 'safety',
         value: k.riskPer100Km.value === null ? '—' : num(k.riskPer100Km.value, 2),
         sub: 'severity-weighted events',
         delta: k.riskPer100Km,
       },
     ];
 
+    const SECTION_NAME = { safety: 'Safety', emissions: 'Emissions & energy', vehicles: 'Vehicles' };
     $('rpKpis').innerHTML = tiles
       .map(
         (t) => `
-      <div class="rp-kpi">
-        <div class="rp-kpi-label">${escapeHtml(t.label)}</div>
-        <div class="rp-kpi-value">${t.value}</div>
-        <div class="rp-kpi-foot">
+      <button type="button" class="rp-kpi" data-goto="${t.goto}" title="Open the ${escapeHtml(SECTION_NAME[t.goto])} section">
+        <span class="rp-kpi-label">${escapeHtml(t.label)}</span>
+        <span class="rp-kpi-value">${t.value}</span>
+        <span class="rp-kpi-foot">
           ${deltaChip(t.delta, { prevLabel, incomplete: r.period.comparisonComplete === false })}
           ${t.spark && r.period.days > 1 ? sparkline(t.spark) : ''}
-        </div>
-        <div class="rp-kpi-sub">${escapeHtml(t.sub)}</div>
-      </div>`
+        </span>
+        <span class="rp-kpi-sub">${escapeHtml(t.sub)}</span>
+        <span class="rp-kpi-go" aria-hidden="true">›</span>
+      </button>`
       )
       .join('');
   }
@@ -544,7 +634,10 @@
     return {
       responsive: true,
       maintainAspectRatio: false,
-      animation: { duration: 250 },
+      // No entrance animation: a resize landing mid-animation (web fonts
+      // finishing, a panel toggling) freezes bars at the old layout, and
+      // these charts are recreated on every fetch anyway.
+      animation: false,
       indexAxis: horizontal ? 'y' : 'x',
       interaction: { mode: 'index', intersect: false, axis: horizontal ? 'y' : 'x' },
       layout: { padding: { top: 4, right: 4 } },
