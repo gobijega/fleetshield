@@ -634,7 +634,10 @@
     return {
       responsive: true,
       maintainAspectRatio: false,
-      animation: { duration: 250 },
+      // No entrance animation: a resize landing mid-animation (web fonts
+      // finishing, a panel toggling) freezes bars at the old layout, and
+      // these charts are recreated on every fetch anyway.
+      animation: false,
       indexAxis: horizontal ? 'y' : 'x',
       interaction: { mode: 'index', intersect: false, axis: horizontal ? 'y' : 'x' },
       layout: { padding: { top: 4, right: 4 } },
