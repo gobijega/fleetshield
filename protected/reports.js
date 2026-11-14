@@ -558,7 +558,7 @@
         <span class="rp-kpi-value">${t.value}</span>
         <span class="rp-kpi-foot">
           ${deltaChip(t.delta, { prevLabel, incomplete: r.period.comparisonComplete === false })}
-          ${t.spark && r.period.days > 1 ? sparkline(t.spark) : ''}
+          <span class="rp-spark-slot">${t.spark && r.period.days > 1 ? sparkline(t.spark) : ''}</span>
         </span>
         <span class="rp-kpi-sub">${escapeHtml(t.sub)}</span>
         <span class="rp-kpi-go" aria-hidden="true">›</span>
