@@ -880,7 +880,10 @@ body.map-mode #tab-map { height: 100%; }
 .rp-kpi-label { font-family: 'IBM Plex Mono', monospace; font-size: 10.5px; letter-spacing: 0.08em; text-transform: uppercase; color: var(--muted); }
 .rp-kpi-value { font-size: 26px; font-weight: 600; letter-spacing: -0.02em; margin-top: 8px; font-variant-numeric: tabular-nums; white-space: nowrap; }
 .rp-kpi-value small { font-size: 13px; font-weight: 500; color: var(--muted); letter-spacing: 0; }
-.rp-kpi-foot { display: flex; align-items: center; justify-content: space-between; gap: 8px; margin-top: 6px; min-height: 22px; }
+/* Wraps so the sparkline drops under the delta text in narrow tiles
+   instead of drawing over it. */
+.rp-kpi-foot { display: flex; flex-wrap: wrap; align-items: center; justify-content: space-between; gap: 4px 8px; margin-top: 6px; min-height: 22px; }
+.rp-kpi-foot .rp-spark { margin-left: auto; }
 .rp-kpi-sub { font-size: 12px; color: var(--muted); margin-top: 4px; line-height: 1.35; }
 .rp-spark { width: 64px; height: 22px; color: #6da7ec; flex: none; overflow: visible; }
 .rp-delta { font-size: 12px; font-variant-numeric: tabular-nums; white-space: nowrap; color: var(--muted); }
