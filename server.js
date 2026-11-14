@@ -219,24 +219,28 @@ async function initVehiclesForOrg(orgId, vehicleConfigs) {
   for (const v of vehicleConfigs) {
     const route = ROUTES[v.route];
     const last = await restoreLatestPosition(v.id);
-    // Start at a random point along the first segment, and put the vehicle
-    // actually there — previously it sat at route[0] until its first move,
-    // then teleported, which the spoofing check rightly flagged.
-    const segT = Math.random();
-    const start = lerp(route[0], route[1 % route.length], segT);
+    // Start somewhere along the loop (routes follow the road, so they have
+    // many short segments) and put the vehicle actually there — previously
+    // it sat at route[0] until its first move, then teleported, which the
+    // spoofing check rightly flagged.
+    // A share of the fleet starts the session parked at its depot, so the
+    // live map shows all three states (travelling / idling / parked).
+    const parkTicks = Math.random() < 0.3 ? PARK_MIN_TICKS + Math.floor(Math.random() * PARK_MAX_TICKS) : 0;
+    const segIndex = parkTicks ? 0 : Math.floor(Math.random() * route.length);
+    const segT = parkTicks ? 0 : Math.random();
+    const start = lerp(route[segIndex], route[(segIndex + 1) % route.length], segT);
     orgState.vehicles.set(v.id, {
       ...v,
-      segIndex: 0,
+      segIndex,
       segT,
+      atDepot: parkTicks > 0,
       lat: start.lat,
       lng: start.lng,
       speedKmh: 0,
       headingDeg: 0,
       status: 'moving',
       idleTicks: 0,
-      // A share of the fleet starts the session parked at its depot, so the
-      // live map shows all three states (travelling / idling / parked).
-      parkTicks: Math.random() < 0.3 ? PARK_MIN_TICKS + Math.floor(Math.random() * PARK_MAX_TICKS) : 0,
+      parkTicks,
       lastGeofence: new Set(),
       updatedAt: nowIso(),
       odometerKm: last ? Number(last.odometer_km) : 0,
@@ -371,7 +375,7 @@ function tickOrg(orgId, orgState, shouldPersist) {
         return;
       }
 
-      if (v.segIndex === 0 && v.segT < 0.02) {
+      if (v.atDepot) {
         if (v.idleTicks < 3) {
           v.idleTicks += 1;
           v.status = 'idling';
@@ -401,6 +405,7 @@ function tickOrg(orgId, orgState, shouldPersist) {
           return;
         }
         v.idleTicks = 0;
+        v.atDepot = false;
       }
       v.status = 'moving';
 
@@ -469,15 +474,27 @@ function tickOrg(orgId, orgState, shouldPersist) {
           v.odometerKm += leftKm;
           v.segT = 0;
           v.segIndex = (v.segIndex + 1) % route.length;
-          if (v.segIndex === 0) v.tripCount += 1;
+          if (v.segIndex === 0) {
+            // Back at the depot: end the trip here rather than carrying the
+            // leftover distance into the next lap, so the depot idle/park
+            // behaviour (segIndex 0, segT ~0) actually happens.
+            v.tripCount += 1;
+            remainingKm = 0;
+            v.atDepot = true;
+          }
         }
       }
 
       const seg2From = route[v.segIndex];
       const seg2To = route[(v.segIndex + 1) % route.length];
       const pos = lerp(seg2From, seg2To, v.segT);
+      // Bearing of the road segment, correcting longitude for latitude so
+      // the marker arrow points along the street.
       v.headingDeg =
-        (Math.atan2(seg2To.lng - seg2From.lng, seg2To.lat - seg2From.lat) * 180) / Math.PI;
+        (Math.atan2(
+          (seg2To.lng - seg2From.lng) * Math.cos((seg2From.lat * Math.PI) / 180),
+          seg2To.lat - seg2From.lat
+        ) * 180) / Math.PI;
       v.lat = pos.lat;
       v.lng = pos.lng;
       v.speedKmh = Math.round(speed);
