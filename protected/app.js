@@ -70,7 +70,6 @@ const state = {
   alerts: [],
   geofences: [],
   geofenceLayers: new Map(),
-  alertFilter: 'all',
 };
 
 // ---------------------------------------------------------------------------
@@ -676,38 +675,12 @@ function renderVehicleList() {
 // ---------------------------------------------------------------------------
 // Alerts
 // ---------------------------------------------------------------------------
-function alertVehicleCell(a) {
-  const v = a.vehicleId ? state.vehicles.get(a.vehicleId) : null;
-  if (v && v.plate) return `${plateBadge(v)} <span class="vp-muted">${escapeHtml(v.label)}</span>`;
-  return escapeHtml(a.vehicleLabel || '—');
-}
-
+// The Alerts tab itself lives in alerts.js, which replaces window.renderAlerts.
+// This fallback only keeps the tab badge current if alerts.js hasn't loaded.
 function renderAlerts() {
-  const rows = document.getElementById('alertRows');
-  const filtered =
-    state.alertFilter === 'all'
-      ? state.alerts
-      : state.alerts.filter((a) => a.severity === state.alertFilter);
-  rows.innerHTML = filtered
-    .slice(0, 200)
-    .map(
-      (a) => `
-      <tr>
-        <td>${new Date(a.t).toLocaleTimeString()}</td>
-        <td>${alertVehicleCell(a)}</td>
-        <td>${a.type.replace(/_/g, ' ')}</td>
-        <td><span class="sev sev-${a.severity}">${a.severity}</span></td>
-        <td>${a.message}</td>
-      </tr>`
-    )
-    .join('');
-  document.getElementById('alertCount').textContent = state.alerts.length;
+  if (window.renderAlerts && window.renderAlerts !== renderAlerts) return window.renderAlerts();
+  document.getElementById('alertCount').textContent = state.alerts.filter((a) => (a.status || 'open') === 'open').length;
 }
-
-document.getElementById('alertFilter').addEventListener('change', (e) => {
-  state.alertFilter = e.target.value;
-  renderAlerts();
-});
 
 // ---------------------------------------------------------------------------
 // Reports — see reports.js (window.loadReports).
@@ -1067,8 +1040,10 @@ function connect() {
       renderVehicleList();
     } else if (msg.type === 'alert') {
       state.alerts.unshift(msg.alert);
-      if (state.alerts.length > 500) state.alerts.length = 500;
+      if (state.alerts.length > 2000) state.alerts.length = 2000;
       renderAlerts();
+    } else if (msg.type === 'alert_update' && window.onAlertUpdate) {
+      window.onAlertUpdate(msg.alert);
     }
   };
 }

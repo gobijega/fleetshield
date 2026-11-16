@@ -52,6 +52,7 @@ const billing = require('./lib/billing');
 const { runCsvImport } = require('./lib/ingestion/import-service');
 const reports = require('./lib/reports');
 const assurance = require('./lib/assurance');
+const alertWorkflow = require('./lib/alert-workflow');
 const evidence = require('./lib/evidence');
 
 const PORT = process.env.PORT || 3000;
@@ -267,8 +268,31 @@ async function initVehiclesForOrg(orgId, vehicleConfigs) {
 // Alerts
 // ---------------------------------------------------------------------------
 
+// Database row -> alert record as served to clients.
+function rowToAlert(r) {
+  return {
+    id: r.id,
+    t: r.ts,
+    vehicleId: r.vehicle_id,
+    vehicleLabel: r.vehicle_label,
+    type: r.type,
+    severity: r.severity,
+    message: r.message,
+    geofenceId: r.geofence_id,
+    lat: r.lat != null ? Number(r.lat) : null,
+    lng: r.lng != null ? Number(r.lng) : null,
+    status: r.status || 'open',
+    acknowledgedAt: r.acknowledged_at || null,
+    acknowledgedBy: r.acknowledged_by || null,
+    resolvedAt: r.resolved_at || null,
+    resolvedBy: r.resolved_by || null,
+    resolution: r.resolution || null,
+    note: r.note || null,
+  };
+}
+
 function pushAlert(orgId, orgState, alert) {
-  const full = { id: uid('al'), t: nowIso(), ...alert };
+  const full = { id: uid('al'), t: nowIso(), status: 'open', ...alert };
   orgState.alerts.unshift(full);
   if (orgState.alerts.length > ALERTS_MAX) orgState.alerts.length = ALERTS_MAX;
   broadcast(orgId, { type: 'alert', alert: full });
@@ -1340,32 +1364,90 @@ app.get('/api/alerts', async (req, res) => {
   const limit = Math.min(parseInt(req.query.limit, 10) || 50, 1000);
   try {
     const params = [req.orgId, limit];
-    let vehicleFilter = '';
+    const where = ['org_id = $1'];
     if (req.query.vehicleId) {
-      params.push(req.query.vehicleId);
-      vehicleFilter = 'AND vehicle_id = $3';
+      params.push(String(req.query.vehicleId));
+      where.push(`vehicle_id = $${params.length}`);
+    }
+    const hours = parseInt(req.query.hours, 10);
+    if (Number.isFinite(hours) && hours > 0) {
+      params.push(Math.min(hours, 24 * 90));
+      where.push(`ts >= now() - ($${params.length} || ' hours')::interval`);
+    }
+    if (req.query.status && alertWorkflow.STATUSES.includes(req.query.status)) {
+      params.push(req.query.status);
+      where.push(`status = $${params.length}`);
     }
     const { rows } = await db.query(
-      `SELECT * FROM alerts WHERE org_id = $1 ${vehicleFilter} ORDER BY ts DESC LIMIT $2`,
+      `SELECT * FROM alerts WHERE ${where.join(' AND ')} ORDER BY ts DESC LIMIT $2`,
       params
     );
-    res.json(
-      rows.map((r) => ({
-        id: r.id,
-        t: r.ts,
-        vehicleId: r.vehicle_id,
-        vehicleLabel: r.vehicle_label,
-        type: r.type,
-        severity: r.severity,
-        message: r.message,
-        geofenceId: r.geofence_id,
-        lat: r.lat != null ? Number(r.lat) : null,
-        lng: r.lng != null ? Number(r.lng) : null,
-      }))
-    );
+    res.json(rows.map(rowToAlert));
   } catch (err) {
     console.error(err);
     res.status(500).json({ error: 'query failed' });
+  }
+});
+
+// Alert triage. Acknowledge, resolve (with a reason) or reopen one alert,
+// or acknowledge/resolve up to 200 at once. Every change is written to the
+// alerts row, mirrored into the live org state, pushed to connected clients
+// and recorded in the audit log.
+const ALERT_AUDIT_EVENT = { acknowledge: 'alert_acknowledged', resolve: 'alert_resolved', reopen: 'alert_reopened' };
+
+async function applyAlertAction(req, id, parsed) {
+  const { rows } = await db.query('SELECT * FROM alerts WHERE id = $1 AND org_id = $2', [id, req.orgId]);
+  if (!rows.length) return { status: 404, error: 'alert not found' };
+  const current = rowToAlert(rows[0]);
+  const result = alertWorkflow.applyAction(current, parsed, { username: req.session.username || 'unknown' });
+  if (result.error) return { status: 409, error: result.error };
+  const c = result.changes;
+  const cols = { status: 'status', acknowledgedAt: 'acknowledged_at', acknowledgedBy: 'acknowledged_by', resolvedAt: 'resolved_at', resolvedBy: 'resolved_by', resolution: 'resolution', note: 'note' };
+  const keys = Object.keys(c).filter((k) => cols[k]);
+  const sets = keys.map((k, i) => `${cols[k]} = $${i + 3}`);
+  await db.query(`UPDATE alerts SET ${sets.join(', ')} WHERE id = $1 AND org_id = $2`, [id, req.orgId, ...keys.map((k) => c[k])]);
+  const orgState = getOrgState(req.orgId);
+  const live = orgState.alerts.find((a) => a.id === id);
+  if (live) Object.assign(live, c);
+  broadcast(req.orgId, { type: 'alert_update', alert: result.alert });
+  await audit(ALERT_AUDIT_EVENT[parsed.action], {
+    orgId: req.orgId,
+    username: req.session.username,
+    ip: req.ip,
+    detail: `${id}${parsed.resolution ? ` resolution=${parsed.resolution}` : ''}`,
+  });
+  return { alert: result.alert };
+}
+
+app.patch('/api/alerts/:id', async (req, res) => {
+  const parsed = alertWorkflow.validateAction(req.body);
+  if (parsed.error) return res.status(400).json({ error: parsed.error });
+  try {
+    const out = await applyAlertAction(req, String(req.params.id).slice(0, 64), parsed);
+    if (out.error) return res.status(out.status).json({ error: out.error });
+    res.json(out.alert);
+  } catch (err) {
+    console.error(err);
+    res.status(500).json({ error: 'update failed' });
+  }
+});
+
+app.post('/api/alerts/bulk', async (req, res) => {
+  const parsed = alertWorkflow.validateBulk(req.body);
+  if (parsed.error) return res.status(400).json({ error: parsed.error });
+  if (parsed.action === 'reopen') return res.status(400).json({ error: 'bulk reopen is not supported' });
+  const updated = [];
+  const skipped = [];
+  try {
+    for (const id of parsed.ids) {
+      const out = await applyAlertAction(req, id, parsed);
+      if (out.error) skipped.push({ id, error: out.error });
+      else updated.push(out.alert);
+    }
+    res.json({ updated, skipped });
+  } catch (err) {
+    console.error(err);
+    res.status(500).json({ error: 'bulk update failed' });
   }
 });
 
@@ -1789,18 +1871,7 @@ async function boot() {
       'SELECT * FROM alerts WHERE org_id = $1 ORDER BY ts DESC LIMIT $2',
       [org.id, ALERTS_MAX]
     );
-    orgState.alerts = recentAlerts.map((r) => ({
-      id: r.id,
-      t: r.ts,
-      vehicleId: r.vehicle_id,
-      vehicleLabel: r.vehicle_label,
-      type: r.type,
-      severity: r.severity,
-      message: r.message,
-      geofenceId: r.geofence_id,
-      lat: r.lat != null ? Number(r.lat) : null,
-      lng: r.lng != null ? Number(r.lng) : null,
-    }));
+    orgState.alerts = recentAlerts.map(rowToAlert);
   }
 
   setInterval(tick, TICK_MS);
