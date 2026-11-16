@@ -40,7 +40,7 @@
   <button class="tab-btn" data-tab="reports">Reports</button>
   <button class="tab-btn" data-tab="fleet">Fleet &amp; Billing</button>
   <button class="tab-btn" data-tab="geofences">Geofencing</button>
-  <button class="tab-btn" data-tab="compliance">Compliance</button>
+  <button class="tab-btn" data-tab="compliance">Compliance &amp; Maintenance</button>
   <button class="tab-btn" data-tab="import">Data Import</button>
 </nav>
 
@@ -424,15 +424,111 @@
   </section>
 
   <section id="tab-compliance" class="tab-panel">
-    <h2>Safety &amp; Compliance</h2>
-    <p class="hint">Driver safety scores (based on alert history), vehicle registration status, and service due dates for the demonstration fleet.</p>
-    <div class="alert-table-wrap">
-      <table class="alert-table" id="complianceTable">
-        <thead>
-          <tr><th>Numberplate</th><th>Vehicle</th><th>Driver</th><th>Safety Score</th><th>Rego Expiry</th><th>Rego Status</th><th>Service Due</th><th>Service Status</th></tr>
-        </thead>
-        <tbody id="complianceRows"></tbody>
-      </table>
+    <div class="panel-header mt-head">
+      <div>
+        <h2>Compliance &amp; Maintenance</h2>
+        <p class="hint">Preventive maintenance measured against each vehicle&rsquo;s telematics odometer, work orders, pre-start inspections, and registration and safety status.</p>
+      </div>
+      <button type="button" class="al-btn al-btn--primary" id="mtNewWo">New work order</button>
+    </div>
+
+    <nav class="mt-subnav" role="tablist" aria-label="Compliance and maintenance views">
+      <button type="button" role="tab" class="active" aria-selected="true" data-mt="overview">Overview</button>
+      <button type="button" role="tab" aria-selected="false" data-mt="workorders">Work orders <span class="badge" id="mtWoCount">0</span></button>
+      <button type="button" role="tab" aria-selected="false" data-mt="pm">Preventive maintenance</button>
+      <button type="button" role="tab" aria-selected="false" data-mt="inspections">Inspections</button>
+    </nav>
+    <p class="al-live mt-live" id="mtLive" aria-live="polite"></p>
+
+    <div class="mt-view" data-view="overview">
+      <div class="al-summary mt-kpis" id="mtKpis"></div>
+      <div class="alert-table-wrap">
+        <table class="alert-table mt-table">
+          <thead>
+            <tr><th>Numberplate</th><th>Vehicle</th><th>Odometer</th><th>Next maintenance</th><th>Work orders</th><th>Last inspection</th><th>Rego</th><th>Safety score</th></tr>
+          </thead>
+          <tbody id="mtFleetRows"></tbody>
+        </table>
+      </div>
+    </div>
+
+    <div class="mt-view" data-view="workorders" hidden>
+      <div class="al-toolbar">
+        <div class="al-seg" id="mtWoStatus" role="group" aria-label="Work order status">
+          <button type="button" data-st="open" class="active" aria-pressed="true">Open</button>
+          <button type="button" data-st="closed" aria-pressed="false">Closed</button>
+          <button type="button" data-st="all" aria-pressed="false">All</button>
+        </div>
+        <select id="mtWoVehicle" aria-label="Vehicle"><option value="all">All vehicles</option></select>
+        <select id="mtWoType" aria-label="Type">
+          <option value="all">All types</option>
+          <option value="preventive">Preventive</option>
+          <option value="corrective">Corrective</option>
+          <option value="inspection">Inspection</option>
+          <option value="other">Other</option>
+        </select>
+        <label class="al-search"><span class="sr-only">Search work orders</span><input type="search" id="mtWoSearch" placeholder="Search title, plate or assignee" autocomplete="off" /></label>
+      </div>
+      <div class="al-layout">
+        <div class="alert-table-wrap al-table-wrap">
+          <table class="alert-table mt-table mt-wo-table">
+            <thead>
+              <tr><th>Ref</th><th>Work order</th><th>Vehicle</th><th>Priority</th><th>Status</th><th>Assignee</th><th>Due</th><th>Cost</th></tr>
+            </thead>
+            <tbody id="mtWoRows"></tbody>
+          </table>
+          <p class="hint al-empty" id="mtWoEmpty" hidden>No work orders match.</p>
+        </div>
+        <aside class="al-drawer mt-drawer" id="mtWoDrawer" hidden aria-label="Work order detail"></aside>
+      </div>
+    </div>
+
+    <div class="mt-view" data-view="pm" hidden>
+      <p class="hint">Each schedule falls due on distance (from the tracker&rsquo;s odometer), time, or both, whichever comes first. A preventive work order is raised automatically when a schedule is within 1,000 km or 14 days of being due, and completing it resets the schedule.</p>
+      <div class="alert-table-wrap">
+        <table class="alert-table mt-table">
+          <thead>
+            <tr><th>Vehicle</th><th>Schedule</th><th>Interval</th><th>Last done</th><th>Next due</th><th>Status</th><th><span class="sr-only">Actions</span></th></tr>
+          </thead>
+          <tbody id="mtPmRows"></tbody>
+        </table>
+      </div>
+      <form class="mt-form" id="mtPmForm">
+        <h3>Add a schedule</h3>
+        <div class="mt-form-grid">
+          <label>Vehicle <select name="vehicleId" required></select></label>
+          <label>Name <input name="name" required maxlength="120" placeholder="e.g. Transmission service" /></label>
+          <label>Every (km) <input name="intervalKm" type="number" min="100" step="100" placeholder="e.g. 40000" /></label>
+          <label>Every (days) <input name="intervalDays" type="number" min="1" step="1" placeholder="e.g. 365" /></label>
+          <label class="mt-span">Checklist <span class="vp-muted">(one task per line, optional)</span><textarea name="checklist" rows="3"></textarea></label>
+        </div>
+        <button type="submit" class="al-btn al-btn--primary">Add schedule</button>
+      </form>
+    </div>
+
+    <div class="mt-view" data-view="inspections" hidden>
+      <div class="mt-insp-grid">
+        <form class="mt-form" id="mtInspForm">
+          <h3>Pre-start inspection</h3>
+          <div class="mt-form-grid">
+            <label>Vehicle <select name="vehicleId" required></select></label>
+            <label>Inspector <input name="inspector" required maxlength="120" placeholder="Full name" /></label>
+          </div>
+          <div class="mt-insp-items" id="mtInspItems"></div>
+          <label>Notes <span class="vp-muted">(optional)</span><textarea name="notes" rows="2" maxlength="2000"></textarea></label>
+          <p class="hint">A failed item raises a corrective work order. A failed brake, tyre, light or seatbelt check also marks the vehicle out of service until that work order is done.</p>
+          <button type="submit" class="al-btn al-btn--primary">Submit inspection</button>
+        </form>
+        <div>
+          <h3 class="mt-h3">Recent inspections</h3>
+          <div class="alert-table-wrap">
+            <table class="alert-table mt-table">
+              <thead><tr><th>When</th><th>Vehicle</th><th>Inspector</th><th>Result</th><th>Odometer</th></tr></thead>
+              <tbody id="mtInspRows"></tbody>
+            </table>
+          </div>
+        </div>
+      </div>
     </div>
   </section>
 
@@ -489,5 +585,6 @@
 <script src="app.js"></script>
 <script src="reports.js"></script>
 <script src="alerts.js"></script>
+<script src="maintenance.js"></script>
 </body>
 </html>
