@@ -754,30 +754,9 @@ async function loadAssurance() {
 // ---------------------------------------------------------------------------
 // Compliance
 // ---------------------------------------------------------------------------
-async function loadCompliance() {
-  const res = await authedFetch('/api/compliance');
-  const rows = await res.json();
-  document.getElementById('complianceRows').innerHTML = rows
-    .map(
-      (v) => `
-      <tr>
-        <td>${plateBadge(v)}</td>
-        <td>${escapeHtml(v.label)}</td>
-        <td>${escapeHtml(v.driver || '—')}</td>
-        <td>${v.safetyScore}</td>
-        <td>${v.regoExpiryDate} (${v.regoDaysRemaining}d)</td>
-        <td><span class="sev sev-${complianceSev(v.regoStatus)}">${v.regoStatus.replace('_', ' ')}</span></td>
-        <td>${v.kmToNextService} km</td>
-        <td><span class="sev sev-${complianceSev(v.serviceStatus)}">${v.serviceStatus.replace('_', ' ')}</span></td>
-      </tr>`
-    )
-    .join('');
-}
-
-function complianceSev(status) {
-  if (status === 'overdue') return 'high';
-  if (status === 'due_soon') return 'medium';
-  return 'good';
+// Compliance & Maintenance tab: see maintenance.js (window.loadMaintenance).
+function loadCompliance() {
+  if (window.loadMaintenance) window.loadMaintenance();
 }
 
 // ---------------------------------------------------------------------------

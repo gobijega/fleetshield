@@ -53,6 +53,7 @@ const { runCsvImport } = require('./lib/ingestion/import-service');
 const reports = require('./lib/reports');
 const assurance = require('./lib/assurance');
 const alertWorkflow = require('./lib/alert-workflow');
+const { attachMaintenanceRoutes } = require('./lib/maintenance-routes');
 const evidence = require('./lib/evidence');
 
 const PORT = process.env.PORT || 3000;
@@ -1223,6 +1224,8 @@ async function insertVehicleForOrg(orgId, { label, driver, fuelType, plate }) {
     [v.id, v.label, v.driver, v.route, v.speedLimit, v.baseSpeed, v.fuelType, v.consumptionPer100, v.idleRatePerHour, v.startingOdometerKm, v.regoExpiryDate, v.plate, orgId]
   );
   await initVehiclesForOrg(orgId, [v]);
+  // Give the new vehicle the default preventive-maintenance program.
+  maintenance.sweepAll([orgId]).catch((err) => console.error('PM seed failed', err.message));
   return v;
 }
 
@@ -1794,6 +1797,10 @@ app.get('/api/reports/emissions', (req, res) => {
   });
 });
 
+// Maintenance: preventive-maintenance schedules, work orders, inspections
+// (lib/maintenance-routes.js). Behind requireAuth/requireCsrf like the rest.
+const maintenance = attachMaintenanceRoutes(app, { db, getOrgState, uid, audit });
+
 app.get('/api/compliance', (req, res) => {
   const vehicles = Array.from(getOrgState(req.orgId).vehicles.values());
   res.json(
@@ -1875,6 +1882,7 @@ async function boot() {
   }
 
   setInterval(tick, TICK_MS);
+  maintenance.startSweeps(async () => (await orgs.listOrgs(db)).map((o) => o.id));
 
   // Graceful shutdown: the host sends SIGTERM on every deploy/restart. Close
   // sockets, the listener and the pg pool so in-flight requests finish.
