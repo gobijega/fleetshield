@@ -1,4 +1,5 @@
 // Fleet Shield — JEGASEC
+/* global renderGeofenceList */
 // Connects to the backend over WebSocket for live positions/alerts,
 // and REST for geofences + reports.
 
@@ -86,6 +87,7 @@ document.querySelectorAll('.tab-btn').forEach((btn) => {
     if (btn.dataset.tab === 'fleet') loadFleetTab();
     if (btn.dataset.tab === 'import') loadImportHistory();
     if (btn.dataset.tab === 'assurance') loadAssurance();
+    if (btn.dataset.tab === 'geofences' && window.loadGeofencing) window.loadGeofencing();
     document.body.classList.toggle('map-mode', btn.dataset.tab === 'map');
     if (btn.dataset.tab === 'map') setTimeout(() => map.invalidateSize(), 50);
   });
@@ -223,7 +225,8 @@ syncPlateTagVisibility();
 // with a CSS filter (.tiles-dark in style.css) to suit the theme.
 // referrerPolicy: the app sends no Referer by default (helmet), but OSM's
 // tile servers require one, so tiles opt back in to sending the origin.
-function addBaseLayer(cartoKey) {
+function addBaseLayer(cartoKey, target = map) {
+  state.mapTileKey = cartoKey || null;
   // Zooming out swaps in a whole new grid of tiles at once. On a large
   // screen that is 60+ simultaneous requests, which OSM's public tile
   // server throttles; the dropped tiles used to stay black for good.
@@ -253,7 +256,8 @@ function addBaseLayer(cartoKey) {
   layer.on('tileerror', ({ tile }) => {
     if (tile.getAttribute('src')) retryTile(tile);
   });
-  layer.addTo(map);
+  layer.addTo(target);
+  return layer;
 }
 
 // Retry a failed tile up to 4 times (1.5s, 3s, 6s, 12s). The retry loads
@@ -936,52 +940,8 @@ async function handleCheckoutReturn() {
 }
 
 // ---------------------------------------------------------------------------
-// Geofencing tab
+// Geofencing tab: see geofences.js (renderGeofenceList is defined there).
 // ---------------------------------------------------------------------------
-function renderGeofenceList() {
-  const list = document.getElementById('geofenceList');
-  list.innerHTML = state.geofences
-    .map(
-      (gf) => `
-    <div class="geofence-card">
-      <div>
-        <div>${gf.name} <span class="gf-type ${gf.type}">${gf.type}</span></div>
-        <div class="meta">${gf.lat.toFixed(4)}, ${gf.lng.toFixed(4)} · radius ${gf.radiusM} m</div>
-      </div>
-      <button data-id="${gf.id}">Remove</button>
-    </div>`
-    )
-    .join('');
-  list.querySelectorAll('button[data-id]').forEach((btn) => {
-    btn.addEventListener('click', async () => {
-      await authedFetch(`/api/geofences/${btn.dataset.id}`, { method: 'DELETE' });
-      state.geofences = state.geofences.filter((g) => g.id !== btn.dataset.id);
-      renderGeofenceList();
-      renderGeofences();
-    });
-  });
-}
-
-document.getElementById('geofenceForm').addEventListener('submit', async (e) => {
-  e.preventDefault();
-  const body = {
-    name: document.getElementById('gfName').value,
-    lat: parseFloat(document.getElementById('gfLat').value),
-    lng: parseFloat(document.getElementById('gfLng').value),
-    radiusM: parseFloat(document.getElementById('gfRadius').value),
-    type: document.getElementById('gfType').value,
-  };
-  const res = await authedFetch('/api/geofences', {
-    method: 'POST',
-    headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify(body),
-  });
-  const gf = await res.json();
-  state.geofences.push(gf);
-  renderGeofenceList();
-  renderGeofences();
-  e.target.reset();
-});
 
 // ---------------------------------------------------------------------------
 // WebSocket

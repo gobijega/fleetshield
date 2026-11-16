@@ -1515,12 +1515,58 @@ app.post('/api/geofences', async (req, res) => {
       `INSERT INTO geofences (id, name, lat, lng, radius_m, type, org_id) VALUES ($1,$2,$3,$4,$5,$6,$7)`,
       [gf.id, gf.name, gf.lat, gf.lng, gf.radiusM, gf.type, req.orgId]
     );
-    getOrgState(req.orgId).geofences.push(gf);
+    const orgState = getOrgState(req.orgId);
+    orgState.geofences.push(gf);
+    syncGeofenceMembership(orgState, gf);
     audit('geofence_created', { orgId: req.orgId, username: req.session.username, ip: req.ip, detail: `${gf.id}: ${gf.name}` });
     res.status(201).json(gf);
   } catch (err) {
     console.error(err);
     res.status(500).json({ error: 'insert failed' });
+  }
+});
+
+// When a zone is created, moved or resized, record which vehicles are
+// already inside it without raising alerts. Otherwise every vehicle that
+// happens to be inside gets an "entered" alert at the next tick, which is
+// noise rather than an event.
+function syncGeofenceMembership(orgState, gf) {
+  for (const v of orgState.vehicles.values()) {
+    if (!v.lastGeofence) continue;
+    const inside = haversineKm(v, gf) * 1000 <= gf.radiusM;
+    if (inside) v.lastGeofence.add(gf.id);
+    else v.lastGeofence.delete(gf.id);
+  }
+}
+
+app.patch('/api/geofences/:id', async (req, res) => {
+  const orgState = getOrgState(req.orgId);
+  const current = orgState.geofences.find((g) => g.id === req.params.id);
+  if (!current) return res.status(404).json({ error: 'not found' });
+  const merged = { ...current, ...req.body };
+  const validationError = validateGeofenceInput(merged);
+  if (validationError) return res.status(400).json({ error: validationError });
+  const next = {
+    ...current,
+    name: merged.name.trim(),
+    lat: merged.lat,
+    lng: merged.lng,
+    radiusM: merged.radiusM,
+    type: merged.type || current.type,
+  };
+  try {
+    const result = await db.query(
+      `UPDATE geofences SET name = $1, lat = $2, lng = $3, radius_m = $4, type = $5 WHERE id = $6 AND org_id = $7`,
+      [next.name, next.lat, next.lng, next.radiusM, next.type, current.id, req.orgId]
+    );
+    if (!result.rowCount) return res.status(404).json({ error: 'not found' });
+    Object.assign(current, next);
+    syncGeofenceMembership(orgState, current);
+    audit('geofence_updated', { orgId: req.orgId, username: req.session.username, ip: req.ip, detail: `${current.id}: ${current.name}` });
+    res.json(current);
+  } catch (err) {
+    console.error(err);
+    res.status(500).json({ error: 'update failed' });
   }
 });
 
