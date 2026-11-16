@@ -74,6 +74,7 @@
     cursor: -1, // keyboard row index
     loadedHours: 0,
     fresh: new Set(), // ids that arrived live, highlighted briefly
+    flashed: new Set(), // ids already highlighted once (re-renders must not replay it)
   };
 
   const $ = (id) => document.getElementById(id);
@@ -291,18 +292,28 @@
       ? shownGroups.find((g) => g.key === groupKey).items.map((x) => x.id)
       : [a.id];
     const checked = ids.every((id) => ui.selected.has(id));
-    const fresh = ui.fresh.has(a.id) ? ' al-fresh' : '';
+    const fresh = ui.fresh.has(a.id) && !ui.flashed.has(a.id) ? ' al-fresh' : '';
+    if (fresh) ui.flashed.add(a.id);
     const openCls = ui.openId === a.id ? ' al-row--open' : '';
     const repeat =
       count > 1
         ? `<button type="button" class="al-repeat" data-expand="${groupKey}" aria-expanded="${expanded}">×${count} in ${dur(new Date(a.t) - new Date(shownGroups.find((g) => g.key === groupKey).items[count - 1].t)) === '0 min' ? '&lt;1 min' : dur(new Date(a.t) - new Date(shownGroups.find((g) => g.key === groupKey).items[count - 1].t))}</button>`
         : '';
+    const icon = {
+      ack: '<svg viewBox="0 0 16 16" aria-hidden="true"><path d="M3 8.5l3 3 7-7"/></svg>',
+      resolve:
+        '<svg viewBox="0 0 16 16" aria-hidden="true"><circle cx="8" cy="8" r="6.2"/><path d="M5.3 8.2l1.9 1.9 3.6-3.8"/></svg>',
+      view: '<svg viewBox="0 0 16 16" aria-hidden="true"><path d="M6 3.5L10.5 8 6 12.5"/></svg>',
+    };
+    const btn = (attr, kind, label) =>
+      `<button type="button" class="al-ico al-ico--${kind}" ${attr} title="${label}" aria-label="${label}">${icon[kind]}</button>`;
     const actions =
       s === 'open'
-        ? `<button type="button" class="al-btn al-btn--sm" data-act="acknowledge" data-id="${a.id}">Ack</button><button type="button" class="al-btn al-btn--sm" data-open="${a.id}">Resolve…</button>`
+        ? btn(`data-act="acknowledge" data-id="${a.id}"`, 'ack', 'Acknowledge') +
+          btn(`data-open="${a.id}"`, 'resolve', 'Resolve…')
         : s === 'acknowledged'
-          ? `<button type="button" class="al-btn al-btn--sm" data-open="${a.id}">Resolve…</button>`
-          : `<button type="button" class="al-btn al-btn--sm al-btn--ghost" data-open="${a.id}">View</button>`;
+          ? btn(`data-open="${a.id}"`, 'resolve', 'Resolve…')
+          : btn(`data-open="${a.id}"`, 'view', 'View details');
     return `<tr class="al-row al-sev-${a.severity}${child ? ' al-child' : ''}${fresh}${openCls}" data-row="${a.id}" data-ids="${ids.join(',')}">
       <td class="al-cb"><input type="checkbox" data-select="${ids.join(',')}" ${checked ? 'checked' : ''} aria-label="Select alert" /></td>
       <td title="${escapeHtml(abs(a.t))}"><span class="al-time">${new Date(a.t).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit', hour12: false })}</span><span class="al-rel">${rel(a.t)}</span></td>
@@ -310,7 +321,7 @@
       <td class="al-msg"><span class="al-type">${escapeHtml(typeLabel(a.type))}<span class="al-cat">${CATEGORY_LABEL[categoryOf(a.type)]}</span></span><span class="al-text">${escapeHtml(a.message || '')}</span>${repeat}</td>
       <td><span class="sev sev-${a.severity}">${a.severity}</span></td>
       <td>${statusPill(a)}</td>
-      <td class="al-act">${actions}</td>
+      <td class="al-act"><div class="al-acts">${actions}</div></td>
     </tr>`;
   }
 
