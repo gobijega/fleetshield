@@ -1272,3 +1272,23 @@ body.rp-drawer-open { overflow: hidden; }
 @media (max-width: 700px) {
   .al-row.al-sev-high td:first-child, .al-row.al-sev-medium td:first-child { box-shadow: none; }
 }
+
+/* Row actions: quiet icon buttons, full strength on row hover/focus. */
+.al-acts { display: inline-flex; gap: 2px; justify-content: flex-end; }
+.al-ico {
+  width: 30px; height: 30px; display: inline-grid; place-items: center; padding: 0;
+  background: transparent; border: 1px solid transparent; border-radius: 6px; color: var(--muted);
+  cursor: pointer; opacity: 0.55; transition: opacity .12s, background .12s, color .12s, border-color .12s;
+}
+.al-ico svg { width: 16px; height: 16px; fill: none; stroke: currentColor; stroke-width: 1.7; stroke-linecap: round; stroke-linejoin: round; }
+.al-row:hover .al-ico, .al-row--cursor .al-ico, .al-row--open .al-ico, .al-ico:focus-visible { opacity: 1; }
+.al-ico:hover { background: rgba(255, 255, 255, 0.06); border-color: var(--border-bright); }
+.al-ico--ack:hover { color: var(--text); }
+.al-ico--resolve:hover { color: var(--accent); border-color: rgba(0, 255, 65, 0.45); }
+.al-ico--view:hover { color: var(--text); }
+.al-ico:focus-visible { outline: 2px solid var(--accent); outline-offset: 1px; }
+@media (hover: none) { .al-ico { opacity: 1; } }
+@media (max-width: 700px) {
+  .al-table td.al-act { text-align: right; }
+  .al-ico { width: 40px; height: 40px; border-color: var(--border); opacity: 1; }
+}
