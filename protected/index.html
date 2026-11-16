@@ -73,23 +73,78 @@
   </section>
 
   <section id="tab-alerts" class="tab-panel">
-    <div class="panel-header">
-      <h2>Alerts</h2>
-      <select id="alertFilter">
-        <option value="all">All severities</option>
-        <option value="high">High</option>
-        <option value="medium">Medium</option>
-        <option value="low">Low</option>
-        <option value="info">Info</option>
-      </select>
+    <div class="panel-header al-head">
+      <div>
+        <h2>Alerts</h2>
+        <p class="hint">Triage driver-safety, geofence and data-assurance alerts: acknowledge what you have seen, resolve with a reason, and keep a record of who did what.</p>
+      </div>
+      <div class="al-head-actions">
+        <span class="al-live" id="alLive" aria-live="polite"></span>
+        <button type="button" class="al-btn" id="alExport">Export CSV</button>
+      </div>
     </div>
-    <div class="alert-table-wrap">
-      <table class="alert-table">
-        <thead>
-          <tr><th>Time</th><th>Vehicle</th><th>Type</th><th>Severity</th><th>Message</th></tr>
-        </thead>
-        <tbody id="alertRows"></tbody>
-      </table>
+
+    <div class="al-summary" id="alSummary" aria-label="Alert summary for the selected period"></div>
+
+    <div class="al-toolbar" role="toolbar" aria-label="Alert filters">
+      <div class="al-seg" id="alStatus" role="group" aria-label="Status">
+        <button type="button" data-status="open" class="active" aria-pressed="true">Open</button>
+        <button type="button" data-status="acknowledged" aria-pressed="false">Acknowledged</button>
+        <button type="button" data-status="resolved" aria-pressed="false">Resolved</button>
+        <button type="button" data-status="all" aria-pressed="false">All</button>
+      </div>
+      <div class="al-chips" id="alSev" role="group" aria-label="Severity">
+        <button type="button" data-sev="high" class="active sev-high" aria-pressed="true">High</button>
+        <button type="button" data-sev="medium" class="active sev-medium" aria-pressed="true">Medium</button>
+        <button type="button" data-sev="low" class="active sev-low" aria-pressed="true">Low</button>
+        <button type="button" data-sev="info" class="active sev-info" aria-pressed="true">Info</button>
+      </div>
+      <select id="alCategory" aria-label="Category">
+        <option value="all">All categories</option>
+        <option value="safety">Driver safety</option>
+        <option value="geofence">Geofences</option>
+        <option value="assurance">Data assurance</option>
+        <option value="other">Other</option>
+      </select>
+      <select id="alVehicle" aria-label="Vehicle"><option value="all">All vehicles</option></select>
+      <select id="alPeriod" aria-label="Period">
+        <option value="1">Last hour</option>
+        <option value="24" selected>Last 24 hours</option>
+        <option value="168">Last 7 days</option>
+        <option value="720">Last 30 days</option>
+      </select>
+      <label class="al-search"><span class="sr-only">Search alerts</span><input type="search" id="alSearch" placeholder="Search plate, driver or message" autocomplete="off" /></label>
+      <label class="al-toggle"><input type="checkbox" id="alGroup" checked /> Group repeats</label>
+    </div>
+
+    <div class="al-bulk" id="alBulk" hidden>
+      <span id="alBulkCount">0 selected</span>
+      <button type="button" class="al-btn" data-bulk="acknowledge">Acknowledge</button>
+      <select id="alBulkResolution" aria-label="Resolution for selected alerts">
+        <option value="">Resolve as…</option>
+        <option value="confirmed">Confirmed: action taken</option>
+        <option value="explained">Explained: expected behaviour</option>
+        <option value="false_alarm">False alarm</option>
+        <option value="duplicate">Duplicate</option>
+      </select>
+      <button type="button" class="al-btn al-btn--link" id="alBulkClear">Clear selection</button>
+    </div>
+
+    <div class="al-layout">
+      <div class="alert-table-wrap al-table-wrap">
+        <table class="alert-table al-table">
+          <thead>
+            <tr>
+              <th class="al-cb"><input type="checkbox" id="alSelectAll" aria-label="Select all shown alerts" /></th>
+              <th>Time</th><th>Vehicle</th><th>Alert</th><th>Severity</th><th>Status</th><th class="al-act"><span class="sr-only">Actions</span></th>
+            </tr>
+          </thead>
+          <tbody id="alertRows"></tbody>
+        </table>
+        <p class="hint al-empty" id="alEmpty" hidden>No alerts match these filters.</p>
+        <p class="hint al-keys">Keyboard: <kbd>j</kbd>/<kbd>k</kbd> move, <kbd>Enter</kbd> open, <kbd>a</kbd> acknowledge, <kbd>Esc</kbd> close.</p>
+      </div>
+      <aside class="al-drawer" id="alDrawer" hidden aria-label="Alert detail"></aside>
     </div>
   </section>
 
@@ -433,5 +488,6 @@
 <script src="vendor/chart.umd.js"></script>
 <script src="app.js"></script>
 <script src="reports.js"></script>
+<script src="alerts.js"></script>
 </body>
 </html>
