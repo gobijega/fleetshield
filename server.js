@@ -923,7 +923,8 @@ app.post(
     // this deployment has to an internal import-validation dashboard,
     // without building and maintaining a separate UI for it.
     const vr = result.validationReport || {};
-    const metricsSuffix = ` [metrics: submitted=${vr.recordsSubmitted ?? '?'} accepted=${vr.recordsAccepted ?? '?'} rejected=${vr.recordsRejected ?? '?'} duplicates=${vr.duplicateRecords ?? '?'} unknownVehicles=${vr.unknownVehicles ?? '?'} invalidCoords=${vr.invalidCoordinates ?? '?'} invalidTimestamps=${vr.invalidTimestamps ?? '?'} durationMs=${vr.processingDurationMs ?? '?'} completeness=${vr.dataCompletenessPercent ?? '?'}%]`;
+    const metricsSuffix = ` [metrics: submitted=${vr.recordsSubmitted ?? '?'} accepted=${vr.recordsAccepted ?? '?'} rejected=${vr.recordsRejected ?? '?'} duplicates=${vr.duplicateRecords ?? '?'} unknownVehicles=${vr.unknownVehicles ?? '?'} invalidCoords=${vr.invalidCoordinates ?? '?'} invalidTimestamps=${vr.invalidTimestamps ?? '?'} durationMs=${vr.processingDurationMs ?? '?'} completeness=${vr.dataCompletenessPercent ?? '?'}%]`
+      + (result.trustReport ? ` [trust: assessed=${result.trustReport.recordsAssessed} failed=${result.trustReport.recordsFailed} passed=${result.trustReport.recordsPassedPercent ?? '?'}% vehicleDaysFlagged=${result.trustReport.vehicleDays.flagged}/${result.trustReport.vehicleDays.total}]` : '');
     await audit('telemetry_csv_import', {
       orgId: req.orgId,
       username: req.session.username,
