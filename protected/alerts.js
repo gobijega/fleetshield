@@ -305,21 +305,26 @@
         '<svg viewBox="0 0 16 16" aria-hidden="true"><circle cx="8" cy="8" r="6.2"/><path d="M5.3 8.2l1.9 1.9 3.6-3.8"/></svg>',
       view: '<svg viewBox="0 0 16 16" aria-hidden="true"><path d="M6 3.5L10.5 8 6 12.5"/></svg>',
     };
-    const btn = (attr, kind, label) =>
-      `<button type="button" class="al-ico al-ico--${kind}" ${attr} title="${label}" aria-label="${label}">${icon[kind]}</button>`;
+    // Text labels, not icons alone, so nobody has to guess what a tick means.
+    const btn = (attr, kind, label, title) =>
+      `<button type="button" class="al-ico al-ico--txt al-ico--${kind}" ${attr} title="${title}">${icon[kind]}<span>${label}</span></button>`;
     const actions =
       s === 'open'
-        ? btn(`data-act="acknowledge" data-id="${a.id}"`, 'ack', 'Acknowledge') +
-          btn(`data-open="${a.id}"`, 'resolve', 'Resolve…')
+        ? btn(
+            `data-act="acknowledge" data-id="${a.id}"`,
+            'ack',
+            'Seen',
+            'Mark as seen (acknowledge)'
+          ) + btn(`data-open="${a.id}"`, 'resolve', 'Resolve', 'Close this alert with a reason')
         : s === 'acknowledged'
-          ? btn(`data-open="${a.id}"`, 'resolve', 'Resolve…')
-          : btn(`data-open="${a.id}"`, 'view', 'View details');
+          ? btn(`data-open="${a.id}"`, 'resolve', 'Resolve', 'Close this alert with a reason')
+          : btn(`data-open="${a.id}"`, 'view', 'Details', 'View details');
     return `<tr class="al-row al-sev-${a.severity}${child ? ' al-child' : ''}${fresh}${openCls}" data-row="${a.id}" data-ids="${ids.join(',')}">
       <td class="al-cb"><input type="checkbox" data-select="${ids.join(',')}" ${checked ? 'checked' : ''} aria-label="Select alert" /></td>
       <td title="${escapeHtml(abs(a.t))}"><span class="al-time">${new Date(a.t).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit', hour12: false })}</span><span class="al-rel">${rel(a.t)}</span></td>
       <td>${vehicleCell(a)}</td>
       <td class="al-msg"><span class="al-type">${escapeHtml(typeLabel(a.type))}<span class="al-cat">${CATEGORY_LABEL[categoryOf(a.type)]}</span></span><span class="al-text">${escapeHtml(a.message || '')}</span>${repeat}</td>
-      <td><span class="sev sev-${a.severity}">${a.severity}</span></td>
+      <td><span class="sev sev-${a.severity}">${escapeHtml(String(a.severity || '').replace(/^./, (c) => c.toUpperCase()))}</span></td>
       <td>${statusPill(a)}</td>
       <td class="al-act"><div class="al-acts">${actions}</div></td>
     </tr>`;
@@ -770,10 +775,15 @@
     window.renderAlerts();
   };
 
-  document.querySelector('.tab-btn[data-tab="alerts"]').addEventListener('click', () => {
+  // Called by showTab() in app.js whenever the Alerts page opens.
+  window.loadAlertsTab = function () {
     render();
     load(Math.max(ui.hours, 24));
-  });
+  };
+  // Load the last 24 hours up front so the sidebar badge counts every open
+  // alert from today, not just the 50 the live feed sends on connect.
+  load(24);
+
   setInterval(() => {
     if (tab.classList.contains('active')) render(); // keep "x min ago" current
   }, 60000);

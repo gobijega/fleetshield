@@ -76,22 +76,182 @@ const state = {
 // ---------------------------------------------------------------------------
 // Tabs
 // ---------------------------------------------------------------------------
-document.querySelectorAll('.tab-btn').forEach((btn) => {
-  btn.addEventListener('click', () => {
-    document.querySelectorAll('.tab-btn').forEach((b) => b.classList.remove('active'));
-    document.querySelectorAll('.tab-panel').forEach((p) => p.classList.remove('active'));
-    btn.classList.add('active');
-    document.getElementById(`tab-${btn.dataset.tab}`).classList.add('active');
-    if (btn.dataset.tab === 'reports') window.loadReports();
-    if (btn.dataset.tab === 'compliance') loadCompliance();
-    if (btn.dataset.tab === 'fleet') loadFleetTab();
-    if (btn.dataset.tab === 'import') loadImportHistory();
-    if (btn.dataset.tab === 'assurance') loadAssurance();
-    if (btn.dataset.tab === 'geofences' && window.loadGeofencing) window.loadGeofencing();
-    document.body.classList.toggle('map-mode', btn.dataset.tab === 'map');
-    if (btn.dataset.tab === 'map') setTimeout(() => map.invalidateSize(), 50);
+// Navigation is a grouped sidebar. Each page has a hash (#map, #alerts…)
+// so a refresh, a bookmark or the browser's Back button lands on the same
+// page. Other modules still open a page by clicking its .tab-btn.
+const TAB_TITLES = {
+  home: 'Home',
+  map: 'Live map',
+  alerts: 'Alerts',
+  reports: 'Reports',
+  assurance: 'Data trust',
+  fleet: 'Vehicles & billing',
+  geofences: 'Geofences',
+  compliance: 'Maintenance',
+  import: 'Import data',
+};
+let mapFittedOnce = false;
+let currentTab = null;
+
+function showTab(tab, { updateHash = true } = {}) {
+  if (!TAB_TITLES[tab]) tab = 'home';
+  const panel = document.getElementById(`tab-${tab}`);
+  if (!panel) return;
+  document.querySelectorAll('.tab-btn').forEach((b) => {
+    const on = b.dataset.tab === tab;
+    b.classList.toggle('active', on);
+    if (on) b.setAttribute('aria-current', 'page');
+    else b.removeAttribute('aria-current');
   });
+  document.querySelectorAll('.tab-panel').forEach((p) => p.classList.remove('active'));
+  panel.classList.add('active');
+  document.body.classList.toggle('map-mode', tab === 'map');
+  document.getElementById('mobileTitle').textContent = TAB_TITLES[tab];
+  document.title = `${TAB_TITLES[tab]} · Fleet Shield`;
+  closeSidebar();
+  if (updateHash && location.hash !== `#${tab}`) window.history.pushState(null, '', `#${tab}`);
+  const changed = currentTab !== tab;
+  currentTab = tab;
+  if (tab === 'home') loadHome();
+  if (tab === 'alerts' && window.loadAlertsTab) window.loadAlertsTab();
+  if (tab === 'reports') window.loadReports();
+  if (tab === 'compliance') loadCompliance();
+  if (tab === 'fleet') loadFleetTab();
+  if (tab === 'import') loadImportHistory();
+  if (tab === 'assurance') loadAssurance();
+  if (tab === 'geofences' && window.loadGeofencing) window.loadGeofencing();
+  if (tab === 'map') {
+    setTimeout(() => {
+      map.invalidateSize();
+      // The map is built while hidden when the app opens on Home, so the
+      // first visit re-fits it to the fleet once it has a real size.
+      if (!mapFittedOnce && state.vehicles.size) {
+        mapFittedOnce = true;
+        fitFleet();
+      }
+    }, 50);
+  }
+  if (changed && tab !== 'map') window.scrollTo(0, 0);
+}
+
+document.querySelectorAll('.tab-btn').forEach((btn) => {
+  btn.addEventListener('click', () => showTab(btn.dataset.tab));
 });
+window.addEventListener('popstate', () => showTab(location.hash.slice(1), { updateHash: false }));
+// Plain in-page links such as <a href="#fleet" data-go-link="fleet">.
+document.addEventListener('click', (e) => {
+  const link = e.target.closest('[data-go-link]');
+  if (!link) return;
+  e.preventDefault();
+  showTab(link.dataset.goLink);
+});
+
+// Mobile: the sidebar slides in over the page.
+const sidebarEl = document.getElementById('sidebar');
+const sideBackdrop = document.getElementById('sideBackdrop');
+const menuBtn = document.getElementById('menuBtn');
+function openSidebar() {
+  sidebarEl.classList.add('open');
+  sideBackdrop.hidden = false;
+  menuBtn.setAttribute('aria-expanded', 'true');
+}
+function closeSidebar() {
+  sidebarEl.classList.remove('open');
+  sideBackdrop.hidden = true;
+  menuBtn.setAttribute('aria-expanded', 'false');
+}
+menuBtn.addEventListener('click', () => (sidebarEl.classList.contains('open') ? closeSidebar() : openSidebar()));
+sideBackdrop.addEventListener('click', closeSidebar);
+document.addEventListener('keydown', (e) => {
+  if (e.key === 'Escape' && sidebarEl.classList.contains('open')) closeSidebar();
+});
+
+// ---------------------------------------------------------------------------
+// Home: fleet at a glance and a plain-language list of what needs a look.
+// Built only from endpoints the other pages already use.
+// ---------------------------------------------------------------------------
+function renderHomeStatus() {
+  const counts = { moving: 0, idling: 0, parked: 0 };
+  for (const v of state.vehicles.values()) if (counts[v.status] !== undefined) counts[v.status] += 1;
+  document.getElementById('hmMoving').textContent = counts.moving;
+  document.getElementById('hmIdling').textContent = counts.idling;
+  document.getElementById('hmParked').textContent = counts.parked;
+}
+
+function plural(n, one, many) {
+  return `${n} ${n === 1 ? one : many || `${one}s`}`;
+}
+
+function vehicleName(v) {
+  return v.plate || v.label || v.id;
+}
+
+let homeLoading = false;
+async function loadHome() {
+  const hour = new Date().getHours();
+  document.getElementById('hmGreeting').textContent = hour < 12 ? 'Good morning' : hour < 18 ? 'Good afternoon' : 'Good evening';
+  renderHomeStatus();
+  if (homeLoading) return;
+  homeLoading = true;
+  const list = document.getElementById('hmAttention');
+  const get = (url) => authedFetch(url).then((r) => (r.ok ? r.json() : null)).catch(() => null);
+  const [alerts, compliance, maint, trust] = await Promise.all([
+    get('/api/alerts?status=open&hours=24&limit=1000'),
+    get('/api/compliance'),
+    get('/api/maintenance/overview'),
+    get('/api/assurance'),
+  ]);
+  homeLoading = false;
+
+  const items = [];
+  if (alerts) {
+    document.getElementById('hmOpenAlerts').textContent = alerts.length;
+    const high = alerts.filter((a) => a.severity === 'high').length;
+    if (high) items.push({ level: 'high', text: `${plural(high, 'high-severity alert')} still open from the last 24 hours`, go: 'alerts', cta: 'Review alerts' });
+    else if (alerts.length) items.push({ level: 'info', text: `${plural(alerts.length, 'alert')} from the last 24 hours not yet looked at`, go: 'alerts', cta: 'Review alerts' });
+  }
+  if (compliance) {
+    const overdue = compliance.filter((v) => v.regoStatus === 'overdue');
+    const soon = compliance.filter((v) => v.regoStatus === 'due_soon');
+    if (overdue.length) items.push({ level: 'high', text: `Registration has expired for ${overdue.map(vehicleName).join(', ')}`, go: 'compliance', cta: 'View maintenance' });
+    if (soon.length) items.push({ level: 'medium', text: `Registration is due soon for ${soon.map(vehicleName).join(', ')}`, go: 'compliance', cta: 'View maintenance' });
+  }
+  if (maint && maint.kpis) {
+    const k = maint.kpis;
+    if (k.outOfService) items.push({ level: 'high', text: `${plural(k.outOfService, 'vehicle is', 'vehicles are')} out of service`, go: 'compliance', cta: 'View work orders' });
+    if (k.pmOverdue) items.push({ level: 'high', text: `${plural(k.pmOverdue, 'service is', 'services are')} overdue`, go: 'compliance', cta: 'View maintenance' });
+    if (k.overdueWorkOrders) items.push({ level: 'medium', text: `${plural(k.overdueWorkOrders, 'work order is', 'work orders are')} past the due date`, go: 'compliance', cta: 'View work orders' });
+    if (k.pmDueSoon) items.push({ level: 'medium', text: `${plural(k.pmDueSoon, 'service is', 'services are')} coming up soon`, go: 'compliance', cta: 'View maintenance' });
+  }
+  if (trust && trust.vehicles) {
+    const offline = trust.vehicles.filter((v) => v.dataState && v.dataState !== 'ok');
+    const low = trust.vehicles.filter((v) => v.trustScore < 80);
+    if (offline.length) items.push({ level: 'medium', text: `Tracker not reporting properly on ${offline.map(vehicleName).join(', ')}`, go: 'assurance', cta: 'Check data trust' });
+    if (low.length) items.push({ level: 'medium', text: `Tracking data looks unreliable for ${low.map(vehicleName).join(', ')}`, go: 'assurance', cta: 'Check data trust' });
+  }
+
+  const rank = { high: 0, medium: 1, info: 2 };
+  items.sort((a, b) => rank[a.level] - rank[b.level]);
+  list.innerHTML = items.length
+    ? items
+        .map(
+          (i) => `<li class="hm-item hm-item--${i.level}"><span class="hm-item-dot" aria-hidden="true"></span><span class="hm-item-text">${escapeHtml(i.text)}</span><button type="button" class="hm-item-go" data-go="${i.go}">${escapeHtml(i.cta)}</button></li>`
+        )
+        .join('')
+    : '<li class="hm-clear"><b>All clear.</b> Nothing needs your attention right now.</li>';
+}
+
+document.getElementById('tab-home').addEventListener('click', (e) => {
+  const el = e.target.closest('[data-go]');
+  if (!el) return;
+  showTab(el.dataset.go);
+  if (el.dataset.status) {
+    const chip = document.querySelector(`#statusFilter .st-chip[data-status="${el.dataset.status}"]`);
+    if (chip) chip.click();
+  }
+  if (el.dataset.focus) setTimeout(() => document.getElementById(el.dataset.focus)?.focus(), 80);
+});
+document.getElementById('hmRefresh').addEventListener('click', loadHome);
 
 // ---------------------------------------------------------------------------
 // Data Import (secure CSV telemetry import -- internal validation)
@@ -198,7 +358,6 @@ document.getElementById('csvImportForm').addEventListener('submit', async (e) =>
 // ---------------------------------------------------------------------------
 // Map setup
 // ---------------------------------------------------------------------------
-document.body.classList.add('map-mode');
 // Zoom + attribution sit bottom-left: the right side is taken by the
 // floating fleet panel, which would otherwise cover the OSM attribution.
 // Geofences use the Canvas renderer: with SVG, a depot circle at street
@@ -771,6 +930,12 @@ function loadCompliance() {
 // subscription's billed quantity server-side (see POST/DELETE
 // /api/vehicles in server.js). No payment details are handled by this
 // page; card collection only ever happens on Stripe's own signup Checkout.
+const FUEL_LABEL = { diesel: 'Diesel', petrol: 'Petrol', ev: 'Electric' };
+function subscriptionLabel(status) {
+  const map = { active: 'Active', trialing: 'Trial', past_due: 'Payment overdue', canceled: 'Cancelled', incomplete: 'Awaiting payment', none: 'Not set up' };
+  return map[status] || (status ? String(status).replace(/_/g, ' ').replace(/^./, (c) => c.toUpperCase()) : 'Not set up');
+}
+
 async function loadFleetTab() {
   const [meRes, vehiclesRes] = await Promise.all([
     authedFetch('/api/me'),
@@ -781,10 +946,10 @@ async function loadFleetTab() {
 
   const monthlyTotal = (vehicles.length * me.pricePerVehicleAud).toFixed(2);
   document.getElementById('billingCards').innerHTML = `
-    <div class="card"><div class="value">${vehicles.length}</div><div class="label">Vehicles billed</div></div>
-    <div class="card"><div class="value">$${me.pricePerVehicleAud.toFixed(2)}</div><div class="label">Per vehicle / month (AUD)</div></div>
-    <div class="card"><div class="value">$${monthlyTotal}</div><div class="label">Estimated monthly total (AUD)</div></div>
-    <div class="card"><div class="value value--sm">${me.subscriptionStatus}</div><div class="label">Subscription status</div></div>
+    <div class="card"><div class="value">${vehicles.length}</div><div class="label">Vehicles on your plan</div></div>
+    <div class="card"><div class="value">$${me.pricePerVehicleAud.toFixed(2)}</div><div class="label">Per vehicle, per month (AUD)</div></div>
+    <div class="card"><div class="value">$${monthlyTotal}</div><div class="label">Estimated monthly bill (AUD)</div></div>
+    <div class="card"><div class="value value--sm">${escapeHtml(subscriptionLabel(me.subscriptionStatus))}</div><div class="label">Subscription</div></div>
   `;
 
   const list = document.getElementById('fleetVehicleList');
@@ -793,8 +958,8 @@ async function loadFleetTab() {
       (v) => `
     <div class="geofence-card fleet-card">
       <div>
-        <div class="fleet-card-title">${plateBadge(v)} ${escapeHtml(v.label)} <span class="gf-type custom">${escapeHtml(v.fuelType.toUpperCase())}</span></div>
-        <div class="meta">${escapeHtml(v.driver || 'No driver assigned')} · ${escapeHtml(v.id)}</div>
+        <div class="fleet-card-title">${plateBadge(v)} ${escapeHtml(v.label)} <span class="gf-type custom">${escapeHtml(FUEL_LABEL[v.fuelType] || v.fuelType)}</span></div>
+        <div class="meta">${escapeHtml(v.driver || 'No driver assigned')} · Vehicle ID ${escapeHtml(v.id)}</div>
         <form class="plate-edit" data-id="${escapeHtml(v.id)}" hidden>
           <input type="text" class="plate-input" maxlength="12" required placeholder="e.g. 1AB 2CD" value="${escapeHtml(v.plate || '')}" aria-label="Numberplate for ${escapeHtml(v.label)}" />
           <button type="submit" class="btn-plate-save">Save</button>
@@ -803,11 +968,11 @@ async function loadFleetTab() {
       </div>
       <div class="fleet-card-actions">
         <button type="button" class="btn-plate" data-edit="${escapeHtml(v.id)}">${v.plate ? 'Edit plate' : 'Set plate'}</button>
-        <button type="button" data-id="${escapeHtml(v.id)}">Remove</button>
+        <button type="button" class="btn-remove" data-id="${escapeHtml(v.id)}" data-name="${escapeHtml(v.plate || v.label)}">Remove</button>
       </div>
     </div>`
     )
-    .join('') || '<p class="hint">No vehicles yet — add your first one.</p>';
+    .join('') || '<p class="hint">No vehicles yet. Add your first one using the form on the right.</p>';
 
   list.querySelectorAll('button[data-edit]').forEach((btn) => {
     btn.addEventListener('click', () => {
@@ -843,7 +1008,7 @@ async function loadFleetTab() {
 
   list.querySelectorAll('button[data-id]').forEach((btn) => {
     btn.addEventListener('click', async () => {
-      if (!confirm('Remove this vehicle? This also lowers your monthly bill by $17.50.')) return;
+      if (!confirm(`Remove ${btn.dataset.name}? It will be taken off your fleet and its $17.50 monthly charge stops. This can't be undone.`)) return;
       await authedFetch(`/api/vehicles/${btn.dataset.id}`, { method: 'DELETE' });
       loadFleetTab();
     });
@@ -910,11 +1075,7 @@ async function handleCheckoutReturn() {
   // Clean the URL immediately so a page refresh doesn't re-trigger this.
   window.history.replaceState({}, '', window.location.pathname);
 
-  document.querySelectorAll('.tab-btn').forEach((b) => b.classList.remove('active'));
-  document.querySelectorAll('.tab-panel').forEach((p) => p.classList.remove('active'));
-  document.querySelector('.tab-btn[data-tab="fleet"]').classList.add('active');
-  document.body.classList.remove('map-mode');
-  document.getElementById('tab-fleet').classList.add('active');
+  showTab('fleet');
 
   const statusEl = document.getElementById('fleetStatusMsg');
   if (cancelled) {
@@ -972,11 +1133,16 @@ function connect() {
       renderGeofenceList();
       renderVehicleList();
       renderAlerts();
-      if (msg.vehicles.length) fitFleet();
+      if (msg.vehicles.length && currentTab === 'map') {
+        mapFittedOnce = true;
+        fitFleet();
+      }
+      if (currentTab === 'home') renderHomeStatus();
     } else if (msg.type === 'positions') {
       for (const v of msg.vehicles) state.vehicles.set(v.id, v);
       refreshAllMarkers();
       renderVehicleList();
+      if (currentTab === 'home') renderHomeStatus();
     } else if (msg.type === 'alert') {
       state.alerts.unshift(msg.alert);
       if (state.alerts.length > 2000) state.alerts.length = 2000;
@@ -987,5 +1153,10 @@ function connect() {
   };
 }
 
+const startParams = new URLSearchParams(location.search);
+if (!startParams.has('vehicleAdded') && !startParams.has('vehicleCancelled')) {
+  // Wait until reports.js, alerts.js etc. (loaded after this file) have run.
+  document.addEventListener('DOMContentLoaded', () => showTab(location.hash.slice(1) || 'home', { updateHash: false }));
+}
 connect();
 handleCheckoutReturn();
