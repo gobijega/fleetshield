@@ -906,7 +906,7 @@ async function loadAssurance() {
             <td>${new Date(a.t).toLocaleString()}</td>
             <td>${v ? plateBadge(v) : '—'}</td>
             <td>${escapeHtml(labels[a.type] || a.type)}</td>
-            <td><span class="sev sev-${escapeHtml(a.severity)}">${escapeHtml(a.severity)}</span></td>
+            <td><span class="sev sev-${escapeHtml(a.severity)}">${escapeHtml(String(a.severity || "").replace(/^./, (c) => c.toUpperCase()))}</span></td>
             <td>${escapeHtml(a.message || '')}</td>
           </tr>`;
         })
