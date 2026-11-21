@@ -18,34 +18,76 @@
 <link rel="stylesheet" href="style.css" />
 </head>
 <body>
-<header class="topbar">
-  <div class="brand">
+<a class="skip-link" href="#main">Skip to content</a>
+<div class="side-backdrop" id="sideBackdrop" hidden></div>
+<aside class="sidebar" id="sidebar" aria-label="Fleet Shield">
+  <div class="side-brand">
     <a class="brand-logo site-logo" href="/"><span class="brand-mark" aria-hidden="true"></span><span class="logo-stack"><span class="wordmark">JEGA<span class="sec">SEC</span></span><span class="site-tagline">Australian&nbsp;engineered</span></span></a>
-    <span class="brand-div"></span>
-    <span class="brand-product">Fleet Shield</span>
+    <span class="side-product">Fleet Shield</span>
   </div>
-  <div class="topbar-right">
-    <div class="conn" id="connStatus">
+  <nav class="side-nav" aria-label="Main">
+      <button type="button" class="tab-btn side-link" data-tab="home"><svg class="side-ico" viewBox="0 0 24 24" aria-hidden="true"><path d="M3 10.5 12 3l9 7.5"/><path d="M5 9.5V21h14V9.5"/><path d="M10 21v-6h4v6"/></svg><span class="side-label">Home</span></button>
+      <p class="side-group">Monitor</p>
+      <button type="button" class="tab-btn side-link" data-tab="map"><svg class="side-ico" viewBox="0 0 24 24" aria-hidden="true"><path d="M9 4 3 6.5v13.5l6-2.5 6 2.5 6-2.5V4l-6 2.5z"/><path d="M9 4v13.5M15 6.5V20"/></svg><span class="side-label">Live map</span></button>
+      <button type="button" class="tab-btn side-link" data-tab="alerts"><svg class="side-ico" viewBox="0 0 24 24" aria-hidden="true"><path d="M6 16V11a6 6 0 1 1 12 0v5l1.5 2h-15z"/><path d="M10 20.5a2 2 0 0 0 4 0"/></svg><span class="side-label">Alerts</span> <span class="badge" id="alertCount" title="Open alerts">0</span></button>
+      <p class="side-group">Insights</p>
+      <button type="button" class="tab-btn side-link" data-tab="reports"><svg class="side-ico" viewBox="0 0 24 24" aria-hidden="true"><path d="M4 20V4"/><path d="M4 20h16"/><path d="M8 16v-5M12 16V8M16 16v-3"/></svg><span class="side-label">Reports</span></button>
+      <button type="button" class="tab-btn side-link" data-tab="assurance"><svg class="side-ico" viewBox="0 0 24 24" aria-hidden="true"><path d="M12 3 4.5 6v5.5c0 4.6 3.2 8.4 7.5 9.5 4.3-1.1 7.5-4.9 7.5-9.5V6z"/><path d="m8.8 12 2.2 2.2 4.2-4.4"/></svg><span class="side-label">Data trust</span></button>
+      <p class="side-group">Manage</p>
+      <button type="button" class="tab-btn side-link" data-tab="fleet"><svg class="side-ico" viewBox="0 0 24 24" aria-hidden="true"><path d="M3 16V8.5A1.5 1.5 0 0 1 4.5 7H14l3.5 4H20a1 1 0 0 1 1 1v4h-2"/><path d="M3 16h2.5M10.5 16h4"/><circle cx="8" cy="16.5" r="2"/><circle cx="17" cy="16.5" r="2"/></svg><span class="side-label">Vehicles &amp; billing</span></button>
+      <button type="button" class="tab-btn side-link" data-tab="geofences"><svg class="side-ico" viewBox="0 0 24 24" aria-hidden="true"><path d="M12 21s-6.5-6-6.5-11a6.5 6.5 0 0 1 13 0c0 5-6.5 11-6.5 11z"/><circle cx="12" cy="10" r="2.3"/></svg><span class="side-label">Geofences</span></button>
+      <button type="button" class="tab-btn side-link" data-tab="compliance"><svg class="side-ico" viewBox="0 0 24 24" aria-hidden="true"><path d="M14.7 6.3a4 4 0 0 0-5.4 5.1L4 16.7 7.3 20l5.3-5.3a4 4 0 0 0 5.1-5.4l-2.4 2.4-2.6-.6-.6-2.6z"/></svg><span class="side-label">Maintenance</span></button>
+      <button type="button" class="tab-btn side-link" data-tab="import"><svg class="side-ico" viewBox="0 0 24 24" aria-hidden="true"><path d="M12 3v12"/><path d="m7.5 10.5 4.5 4.5 4.5-4.5"/><path d="M4 17v3h16v-3"/></svg><span class="side-label">Import data</span></button>
+  </nav>
+  <div class="side-foot">
+    <div class="conn" id="connStatus" title="Connection to live vehicle updates">
       <span class="dot" id="connDot"></span>
       <span id="connText">Connecting…</span>
     </div>
-    <button class="brand-logout" id="logoutBtn">Log out</button>
+    <button type="button" class="brand-logout" id="logoutBtn">Log out</button>
   </div>
+</aside>
+
+<div class="shell-main">
+<header class="mobile-bar">
+  <button type="button" class="menu-btn" id="menuBtn" aria-controls="sidebar" aria-expanded="false"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M4 7h16M4 12h16M4 17h16"/></svg><span class="sr-only">Menu</span></button>
+  <span class="mobile-title" id="mobileTitle">Home</span>
 </header>
+<main id="main" tabindex="-1">
+  <section id="tab-home" class="tab-panel">
+    <div class="hm-head">
+      <div>
+        <h2 id="hmGreeting">Welcome back</h2>
+        <p class="hint" id="hmSub">Here is what your fleet is doing and what needs a look.</p>
+      </div>
+      <button type="button" class="hm-refresh" id="hmRefresh">Refresh</button>
+    </div>
+    <div class="hm-status" id="hmStatus">
+      <button type="button" class="hm-tile" data-go="map" data-status="moving"><span class="hm-tile-n" id="hmMoving">–</span><span class="hm-tile-l"><span class="st-dot hm-dot-moving"></span>On the road</span></button>
+      <button type="button" class="hm-tile" data-go="map" data-status="idling"><span class="hm-tile-n" id="hmIdling">–</span><span class="hm-tile-l"><span class="st-dot hm-dot-idling"></span>Idling</span></button>
+      <button type="button" class="hm-tile" data-go="map" data-status="parked"><span class="hm-tile-n" id="hmParked">–</span><span class="hm-tile-l"><span class="st-dot hm-dot-parked"></span>Parked</span></button>
+      <button type="button" class="hm-tile" data-go="alerts"><span class="hm-tile-n" id="hmOpenAlerts">–</span><span class="hm-tile-l">Open alerts today</span></button>
+    </div>
+    <div class="hm-grid">
+      <section class="hm-card" aria-labelledby="hmAttnTitle">
+        <h3 id="hmAttnTitle">Needs your attention</h3>
+        <ul class="hm-list" id="hmAttention"><li class="hm-loading">Checking your fleet…</li></ul>
+      </section>
+      <section class="hm-card" aria-labelledby="hmQuickTitle">
+        <h3 id="hmQuickTitle">Quick actions</h3>
+        <div class="hm-actions">
+          <button type="button" class="hm-action" data-go="map" data-focus="plateSearch"><b>Find a vehicle</b><span>Search by numberplate or driver on the live map</span></button>
+          <button type="button" class="hm-action" data-go="alerts"><b>Review alerts</b><span>Acknowledge or resolve what has come in</span></button>
+          <button type="button" class="hm-action" data-go="fleet" data-focus="vPlate"><b>Add a vehicle</b><span>Register a numberplate and driver</span></button>
+          <button type="button" class="hm-action" data-go="geofences"><b>Set up a geofence</b><span>Get told when vehicles enter or leave a place</span></button>
+          <button type="button" class="hm-action" data-go="reports"><b>Run a report</b><span>Distance, idling, safety and emissions for any period</span></button>
+          <button type="button" class="hm-action" data-go="compliance"><b>Log maintenance</b><span>Work orders, services and pre-start checks</span></button>
+        </div>
+      </section>
+    </div>
+  </section>
 
-<nav class="tabs">
-  <button class="tab-btn active" data-tab="map">Live Map</button>
-  <button class="tab-btn" data-tab="alerts">Alerts <span class="badge" id="alertCount">0</span></button>
-  <button class="tab-btn" data-tab="assurance">Assurance</button>
-  <button class="tab-btn" data-tab="reports">Reports</button>
-  <button class="tab-btn" data-tab="fleet">Fleet &amp; Billing</button>
-  <button class="tab-btn" data-tab="geofences">Geofencing</button>
-  <button class="tab-btn" data-tab="compliance">Compliance &amp; Maintenance</button>
-  <button class="tab-btn" data-tab="import">Data Import</button>
-</nav>
-
-<main>
-  <section id="tab-map" class="tab-panel active">
+  <section id="tab-map" class="tab-panel">
     <div class="map-stage">
       <div id="map"></div>
 
@@ -76,7 +118,7 @@
     <div class="panel-header al-head">
       <div>
         <h2>Alerts</h2>
-        <p class="hint">Triage driver-safety, geofence and data-assurance alerts: acknowledge what you have seen, resolve with a reason, and keep a record of who did what.</p>
+        <p class="hint">Everything your vehicles have flagged: unsafe driving, geofence crossings and tracker problems. Mark an alert as <b>seen</b>, or <b>resolve</b> it with a reason. Every action is recorded with who did it.</p>
       </div>
       <div class="al-head-actions">
         <span class="al-live" id="alLive" aria-live="polite"></span>
@@ -114,7 +156,7 @@
         <option value="720">Last 30 days</option>
       </select>
       <label class="al-search"><span class="sr-only">Search alerts</span><input type="search" id="alSearch" placeholder="Search plate, driver or message" autocomplete="off" /></label>
-      <label class="al-toggle"><input type="checkbox" id="alGroup" checked /> Group repeats</label>
+      <label class="al-toggle"><input type="checkbox" id="alGroup" checked /> Combine repeats</label>
     </div>
 
     <div class="al-bulk" id="alBulk" hidden>
@@ -142,7 +184,7 @@
           <tbody id="alertRows"></tbody>
         </table>
         <p class="hint al-empty" id="alEmpty" hidden>No alerts match these filters.</p>
-        <p class="hint al-keys">Keyboard: <kbd>j</kbd>/<kbd>k</kbd> move, <kbd>Enter</kbd> open, <kbd>a</kbd> acknowledge, <kbd>Esc</kbd> close.</p>
+        <p class="hint al-keys">Shortcuts: <kbd>j</kbd>/<kbd>k</kbd> move, <kbd>Enter</kbd> open, <kbd>a</kbd> mark seen, <kbd>Esc</kbd> close.</p>
       </div>
       <aside class="al-drawer" id="alDrawer" hidden aria-label="Alert detail"></aside>
     </div>
@@ -151,8 +193,8 @@
   <section id="tab-assurance" class="tab-panel">
     <div class="panel-header">
       <div>
-        <h2>Data assurance</h2>
-        <p class="hint as-intro">Whether each vehicle's telematics data can be trusted: GPS spoofing and jamming, tracker tampering, odometer integrity and after-hours use. These are separate from driver safety events and don't affect safety scores.</p>
+        <h2>Data trust</h2>
+        <p class="hint as-intro">Can you rely on what each vehicle's tracker is reporting? These checks look for GPS spoofing and jamming, tracker tampering, odometer integrity and after-hours use. These are separate from driver safety events and don't affect safety scores.</p>
       </div>
       <a class="as-btn" id="asAuditExport" href="/api/audit.csv" download>Export audit log (CSV)</a>
     </div>
@@ -378,15 +420,16 @@
   </section>
 
   <section id="tab-fleet" class="tab-panel">
-    <h2>Fleet &amp; Billing</h2>
+    <h2>Vehicles &amp; billing</h2>
     <p class="hint" id="fleetStatusMsg"></p>
     <div class="cards" id="billingCards"></div>
     <div class="geofence-layout">
       <div class="geofence-list" id="fleetVehicleList"></div>
       <form class="geofence-form" id="addVehicleForm">
-        <h3>Add Vehicle</h3>
+        <h3>Add a vehicle</h3>
+        <p class="hint">Each vehicle is billed at $17.50 a month (AUD). You can remove it any time and billing for it stops.</p>
         <label>Numberplate<input type="text" id="vPlate" required maxlength="12" placeholder="e.g. 1AB 2CD" autocapitalize="characters" autocomplete="off" class="plate-input" /></label>
-        <label>Label<input type="text" id="vLabel" required maxlength="100" placeholder="e.g. Waste Collection 11" /></label>
+        <label>Vehicle name<input type="text" id="vLabel" required maxlength="100" placeholder="e.g. Service Truck 11" /></label>
         <label>Driver<input type="text" id="vDriver" maxlength="100" placeholder="Optional" /></label>
         <label>Fuel type
           <select id="vFuelType">
@@ -395,7 +438,7 @@
             <option value="ev">EV</option>
           </select>
         </label>
-        <button type="submit">Add Vehicle — Pay $17.50</button>
+        <button type="submit">Add vehicle</button>
         <p class="hint error" id="addVehicleError"></p>
       </form>
     </div>
@@ -404,7 +447,7 @@
   <section id="tab-geofences" class="tab-panel">
     <div class="panel-header gf-head">
       <div>
-        <h2>Geofencing</h2>
+        <h2>Geofences</h2>
         <p class="hint">Zones around depots, work sites and places vehicles must not enter. Fleet Shield checks every position update against them and raises an alert when a vehicle crosses a boundary.</p>
       </div>
     </div>
@@ -496,7 +539,7 @@
   <section id="tab-compliance" class="tab-panel">
     <div class="panel-header mt-head">
       <div>
-        <h2>Compliance &amp; Maintenance</h2>
+        <h2>Maintenance</h2>
         <p class="hint">Preventive maintenance measured against each vehicle&rsquo;s telematics odometer, work orders, pre-start inspections, and registration and safety status.</p>
       </div>
       <button type="button" class="al-btn al-btn--primary" id="mtNewWo">New work order</button>
@@ -603,31 +646,31 @@
   </section>
 
   <section id="tab-import" class="tab-panel">
-    <h2>Data Import</h2>
-    <p class="hint">
-      <strong>Secure CSV telemetry import &mdash; internal validation.</strong>
-      An internal, pilot-stage capability for importing authorised representative
-      telemetry via CSV. This is not a published telematics-vendor integration &mdash;
-      see the Product Validation Roadmap on jegasec.com for current status.
-      Imports are scoped to your organisation only and are recorded in the
-      import history below.
-    </p>
+    <h2>Import data</h2>
+    <p class="hint im-intro">Upload past trip data from a spreadsheet (CSV) to add it to your fleet's history. This is a pilot feature for checking representative data; it is not a direct connection to a telematics vendor. Imports only ever go into your own organisation and each one is logged below.</p>
 
-    <form class="geofence-form" id="csvImportForm">
-      <h3>Import CSV</h3>
-      <label>CSV file
+    <form class="geofence-form im-form" id="csvImportForm">
+      <h3>Upload a CSV file</h3>
+      <ol class="im-steps">
+        <li>Export positions from your tracker or spreadsheet with these columns, in this order:<br /><code>vehicle_id, timestamp, lat, lng, speed_kmh, ignition, odometer_km</code></li>
+        <li><code>vehicle_id</code> must match a vehicle ID shown on <a href="#fleet" data-go-link="fleet">Vehicles &amp; billing</a> (for example VIC-01).</li>
+        <li>Choose the file, or paste the rows below, then press <b>Import</b>.</li>
+      </ol>
+      <label class="im-file">CSV file
         <input type="file" id="csvFile" accept=".csv,text/csv" />
       </label>
-      <p class="hint">Or paste CSV text directly:</p>
-      <label>CSV text
-        <textarea id="csvText" rows="6" placeholder="vehicle_id,timestamp,lat,lng,speed_kmh,ignition,odometer_km&#10;VIC-01,2026-06-01T08:00:00Z,-37.8,144.9,42,true,10452"></textarea>
-      </label>
-      <button type="submit">Import CSV</button>
+      <details class="im-paste">
+        <summary>Or paste the rows instead</summary>
+        <label class="im-text"><span class="sr-only">CSV text</span>
+          <textarea id="csvText" rows="6" placeholder="vehicle_id,timestamp,lat,lng,speed_kmh,ignition,odometer_km&#10;VIC-01,2026-06-01T08:00:00Z,-37.8,144.9,42,true,10452"></textarea>
+        </label>
+      </details>
+      <button type="submit">Import</button>
       <p class="hint" id="csvImportResult"></p>
     </form>
 
-    <h3 style="margin-top: 24px;">Import history</h3>
-    <p class="hint">Every CSV import attempt for your organisation, most recent first. Metrics are read from the audit log &mdash; see docs/procurement-evidence/security-control-evidence-index.md for how these figures are computed.</p>
+    <h3 class="im-history-h">Import history</h3>
+    <p class="hint">Every import for your organisation, most recent first, with how many rows were accepted and why any were rejected.</p>
     <div class="alert-table-wrap">
       <table class="alert-table" id="importHistoryTable">
         <thead>
@@ -642,6 +685,7 @@
     </div>
   </section>
 </main>
+</div>
 
 <script src="vendor/leaflet/leaflet.js"></script>
 <!-- Self-hosted, not CDN: the cdnjs path for Chart.js 4.4.4's minified UMD
