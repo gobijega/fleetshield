@@ -548,7 +548,11 @@
       },
     ];
 
-    const SECTION_NAME = { safety: 'Safety', emissions: 'Emissions & energy', vehicles: 'Vehicles' };
+    const SECTION_NAME = {
+      safety: 'Safety',
+      emissions: 'Emissions & energy',
+      vehicles: 'Vehicles',
+    };
     $('rpKpis').innerHTML = tiles
       .map(
         (t) => `
