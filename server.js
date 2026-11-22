@@ -55,6 +55,7 @@ const assurance = require('./lib/assurance');
 const alertWorkflow = require('./lib/alert-workflow');
 const { attachMaintenanceRoutes } = require('./lib/maintenance-routes');
 const evidence = require('./lib/evidence');
+const evidencePack = require('./lib/evidence-pack');
 
 const PORT = process.env.PORT || 3000;
 const TICK_MS = 2000; // simulation heartbeat
@@ -1725,6 +1726,85 @@ app.get('/api/vehicles/:id/evidence.csv', async (req, res) => {
   } catch (err) {
     console.error(err);
     res.status(500).json({ error: 'export failed' });
+  }
+});
+
+// Evidence pack (DRAFT FORMAT): a one-page, per-period record of which data
+// checks passed, what was found and why, for a fleet manager to hand to an
+// insurer or auditor. See lib/evidence-pack.js. Each vehicle's position
+// records for the period are hash-chained the same way as the CSV export
+// above (lib/evidence.js), so the printed chain head identifies exactly
+// which records the checks covered.
+// The record's reference and fingerprint go into the audit log.
+app.get('/api/evidence-pack', async (req, res) => {
+  const orgState = getOrgState(req.orgId);
+  const tz = ASSURANCE_OPTS.timeZone;
+  const period = evidencePack.parsePeriod({ from: req.query.from, to: req.query.to }, { timeZone: tz });
+  if (!period.ok) return res.status(400).json({ error: period.error });
+  const scope = req.query.vehicle && req.query.vehicle !== 'all' ? req.query.vehicle : 'all';
+  const inScope = Array.from(orgState.vehicles.values()).filter((v) => scope === 'all' || v.id === scope);
+  if (!inScope.length) return res.status(404).json({ error: 'vehicle not found' });
+  const start = new Date(period.startMs);
+  const end = new Date(period.endMs);
+  try {
+    const org = await orgs.findOrgById(db, req.orgId);
+    const vehicles = [];
+    for (const v of inScope) {
+      const { rows } = await db.query(
+        `SELECT ts, lat, lng, speed_kmh, heading_deg, status, odometer_km FROM positions
+          WHERE vehicle_id = $1 AND org_id = $2 AND ts >= $3 AND ts < $4
+          ORDER BY ts ASC LIMIT 200001`,
+        [v.id, req.orgId, start, end]
+      );
+      const truncated = rows.length > 200000;
+      const used = truncated ? rows.slice(0, 200000) : rows;
+      const chained = evidence.chainRows(used);
+      vehicles.push({
+        id: v.id,
+        plate: v.plate || null,
+        label: v.label,
+        records: used.length,
+        firstTs: used.length ? used[0].ts : null,
+        lastTs: used.length ? used[used.length - 1].ts : null,
+        chainHead: chained.length ? chained[chained.length - 1].hash : evidence.GENESIS,
+        truncated,
+      });
+    }
+    const { rows: events } = await db.query(
+      `SELECT ts, vehicle_id, type, severity, message FROM alerts
+        WHERE org_id = $1 AND type = ANY($2::text[]) AND ts >= $3 AND ts < $4
+          AND ($5::text = 'all' OR vehicle_id = $5)
+        ORDER BY ts ASC LIMIT 5000`,
+      [req.orgId, assurance.ASSURANCE_TYPES, start, end, scope]
+    );
+    const pack = evidencePack.buildPack({
+      org: { id: req.orgId, name: (org && org.name) || req.orgId },
+      period,
+      settings: {
+        maxPlausibleKmh: ASSURANCE_OPTS.maxPlausibleKmh,
+        signalLossSec: ASSURANCE_OPTS.signalLossSec,
+        operatingHours: ASSURANCE_OPTS.operatingHours,
+        timeZone: tz,
+      },
+      vehicles,
+      events: events.map((e) => ({ ts: e.ts, vehicleId: e.vehicle_id, type: e.type, severity: e.severity, message: e.message })),
+      meta: {
+        generatedAt: new Date().toISOString(),
+        generatedBy: req.session.username || '',
+        dataSource: 'Fleet Shield simulated demonstration telemetry',
+        simulated: ASSURANCE_SIM_RATE > 0,
+      },
+    });
+    await audit('evidence_pack', {
+      orgId: req.orgId,
+      username: req.session.username,
+      ip: req.ip,
+      detail: `${pack.reference} scope=${scope} ${period.from}..${period.to} findings=${pack.totals.findings} fingerprint=${pack.fingerprint} heads=${vehicles.map((v) => `${v.id}:${v.chainHead.slice(0, 16)}`).join(',')}`,
+    });
+    res.json(pack);
+  } catch (err) {
+    console.error(err);
+    res.status(500).json({ error: 'record failed' });
   }
 });
 

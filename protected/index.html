@@ -204,7 +204,10 @@
         <h2>Data trust</h2>
         <p class="hint as-intro">Can you rely on what each vehicle's tracker is reporting? These checks look for GPS spoofing and jamming, tracker tampering, odometer integrity and after-hours use. These are separate from driver safety events and don't affect safety scores.</p>
       </div>
-      <a class="as-btn" id="asAuditExport" href="/api/audit.csv" download>Export audit log (CSV)</a>
+      <div class="as-actions">
+        <a class="as-btn as-btn--primary" id="asEvidencePack" href="/evidence-pack.html" target="_blank" rel="noopener" title="A one-page record of which checks passed, what was found and why, to give an insurer or auditor">Evidence record</a>
+        <a class="as-btn" id="asAuditExport" href="/api/audit.csv" download>Export audit log (CSV)</a>
+      </div>
     </div>
     <p class="as-sim" id="asSimNote" hidden>Demonstration: the simulated tracking devices occasionally inject faults (spoofed fixes, jammed periods, power cuts, odometer steps) so the checks can be seen working. The checks only see what a device reports, as they would with real hardware.</p>
     <div class="cards" id="asCards"></div>

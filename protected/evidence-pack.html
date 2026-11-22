@@ -1,0 +1,39 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <meta name="robots" content="noindex" />
+    <title>Evidence record · Fleet Shield</title>
+    <link rel="icon" href="/brand/favicon.svg" type="image/svg+xml" />
+    <link
+      href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&family=IBM+Plex+Mono:wght@400;500&display=swap"
+      rel="stylesheet"
+    />
+    <link rel="stylesheet" href="evidence-pack.css" />
+  </head>
+  <body>
+    <form class="ep-controls" id="epForm">
+      <a class="ep-back" href="/#assurance">&larr; Data trust</a>
+      <label
+        >Vehicles
+        <select id="epVehicle">
+          <option value="all">Whole fleet</option>
+        </select>
+      </label>
+      <label>From <input type="date" id="epFrom" /></label>
+      <label>To <input type="date" id="epTo" /></label>
+      <button type="submit" class="ep-btn">Update</button>
+      <button type="button" class="ep-btn ep-btn--primary" id="epPrint">
+        Print or save as PDF
+      </button>
+      <span class="ep-msg" id="epMsg" role="status"></span>
+    </form>
+
+    <main class="ep-sheet" id="epSheet" aria-live="polite">
+      <p class="ep-loading">Preparing the record…</p>
+    </main>
+
+    <script src="evidence-pack.js"></script>
+  </body>
+</html>
