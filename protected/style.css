@@ -1686,3 +1686,4 @@ body.map-mode main { flex: 1; min-height: 0; padding: 0; max-width: none; }
 /* Text that sits on status tints uses the darker status tokens (WCAG AA). */
 .as-sim, .as-chip { color: var(--amber); }
 .vc-count, .fleet-count, .st-chip.active b { color: var(--green); }
+.vi--idling .vi-status { color: var(--amber); }
