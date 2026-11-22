@@ -72,7 +72,7 @@
     return m >= 1000 ? `${(m / 1000).toFixed(m % 1000 ? 1 : 0)} km` : `${Math.round(m)} m`;
   }
   function colourFor(type) {
-    return type === 'restricted' ? '#ff4d5e' : type === 'depot' ? '#0f9a3a' : '#c8b46a';
+    return type === 'restricted' ? '#dc2626' : type === 'depot' ? '#15803d' : '#d97706';
   }
   function alerts24h(gfId) {
     const since = Date.now() - 86400000;
@@ -149,9 +149,9 @@
       if (!Number.isFinite(v.lat)) continue;
       L.circleMarker([v.lat, v.lng], {
         radius: 4,
-        color: '#00ff41',
+        color: '#2563eb',
         weight: 1,
-        fillColor: '#00ff41',
+        fillColor: '#2563eb',
         fillOpacity: 0.8,
       })
         .bindTooltip(v.plate || v.label, { direction: 'top', offset: [0, -4] })

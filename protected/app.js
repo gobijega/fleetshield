@@ -380,8 +380,8 @@ syncPlateTagVisibility();
 // Base map. CARTO's raster tiles stopped serving without an API key on
 // 25 Sep 2026 (they return an "API KEY REQUIRED" placeholder), which left
 // the map blank. If CARTO_BASEMAP_KEY is set on the server we use CARTO
-// Dark Matter with it; otherwise standard OpenStreetMap tiles, darkened
-// with a CSS filter (.tiles-dark in style.css) to suit the theme.
+// Voyager with it; otherwise standard OpenStreetMap tiles, slightly muted
+// with a CSS filter (.tiles-light in style.css) to suit the theme.
 // referrerPolicy: the app sends no Referer by default (helmet), but OSM's
 // tile servers require one, so tiles opt back in to sending the origin.
 function addBaseLayer(cartoKey, target = map) {
@@ -402,13 +402,13 @@ function addBaseLayer(cartoKey, target = map) {
   let layer;
   if (cartoKey) {
     layer = L.tileLayer(
-      `https://basemaps.cartocdn.com/rastertiles/dark_all/{z}/{x}/{y}{r}.png?key=${encodeURIComponent(cartoKey)}`,
-      { ...common, className: 'tiles-stealth', attribution: '&copy; OpenStreetMap contributors &copy; CARTO' }
+      `https://basemaps.cartocdn.com/rastertiles/voyager/{z}/{x}/{y}{r}.png?key=${encodeURIComponent(cartoKey)}`,
+      { ...common, className: 'tiles-light', attribution: '&copy; OpenStreetMap contributors &copy; CARTO' }
     );
   } else {
     layer = L.tileLayer('https://tile.openstreetmap.org/{z}/{x}/{y}.png', {
       ...common,
-      className: 'tiles-dark',
+      className: 'tiles-light',
       attribution: '&copy; <a href="https://www.openstreetmap.org/copyright">OpenStreetMap</a> contributors',
     });
   }
@@ -768,7 +768,7 @@ function renderGeofences() {
   for (const gf of state.geofences) {
     // Stealth palette: depots in dim phosphor, restricted zones in brand
     // red, custom zones in tactical sand; dashed outlines, faint fill.
-    const color = gf.type === 'restricted' ? '#ff4d5e' : gf.type === 'depot' ? '#0f9a3a' : '#c8b46a';
+    const color = gf.type === 'restricted' ? '#dc2626' : gf.type === 'depot' ? '#15803d' : '#d97706';
     const circle = L.circle([gf.lat, gf.lng], {
       radius: gf.radiusM,
       color,

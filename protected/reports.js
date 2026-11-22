@@ -16,24 +16,23 @@
   'use strict';
 
   // ---------------------------------------------------------------------
-  // Palette — validated with the dataviz palette checker against the
-  // panel surface (#0e131c): the three fuel / series hues pass every
-  // categorical check all-pairs in dark mode. Severity uses the status
-  // colours and is always shown with a legend and labels, never colour
-  // alone. A light set is swapped in for printing.
+  // Palette — the light screen set follows the app's light theme (navy
+  // text, slate grid, blue series) and reuses the hues already validated
+  // for the print set on white. Severity uses the status colours and is
+  // always shown with a legend and labels, never colour alone.
   // ---------------------------------------------------------------------
   const THEMES = {
     screen: {
-      text: '#e6ebf3',
-      muted: '#8a97ab',
-      grid: '#1a2230',
-      surface: '#0e131c',
-      series: '#3987e5',
-      moving: '#3987e5',
-      idle: '#d95926',
-      fuel: { diesel: '#3987e5', petrol: '#d95926', ev: '#199e70' },
-      sev: { high: '#e34948', medium: '#eda100', low: '#3987e5', info: '#5b6577' },
-      heat: ['#104281', '#184f95', '#256abf', '#3987e5', '#6da7ec', '#b7d3f6'],
+      text: '#0f1b2d',
+      muted: '#5b6b80',
+      grid: '#e2e8f0',
+      surface: '#ffffff',
+      series: '#2563eb',
+      moving: '#2563eb',
+      idle: '#eb6834',
+      fuel: { diesel: '#2563eb', petrol: '#eb6834', ev: '#1baf7a' },
+      sev: { high: '#dc2626', medium: '#d97706', low: '#2563eb', info: '#94a3b8' },
+      heat: ['#dbeafe', '#bfdbfe', '#93c5fd', '#60a5fa', '#2563eb', '#1e40af'],
     },
     print: {
       text: '#0b0b0b',
@@ -657,8 +656,8 @@
             }
           : { display: false },
         tooltip: {
-          backgroundColor: theme === THEMES.print ? '#ffffff' : '#0b0f16',
-          borderColor: theme === THEMES.print ? '#cccccc' : '#2a3648',
+          backgroundColor: '#ffffff',
+          borderColor: theme === THEMES.print ? '#cccccc' : '#cbd5e1',
           borderWidth: 1,
           titleColor: theme.muted,
           bodyColor: theme.text,
