@@ -1138,6 +1138,7 @@ app.get('/api/me', (req, res) => {
     // Optional free CARTO basemaps key (carto.com/basemaps/apikey). When set,
     // the live map uses CARTO Dark Matter; otherwise darkened OSM tiles.
     mapTileKey: process.env.CARTO_BASEMAP_KEY || null,
+    username: req.session.username || null,
   });
 });
 

@@ -10,7 +10,10 @@
 <link rel="apple-touch-icon" href="/brand/apple-touch-icon.png" />
 <link rel="preconnect" href="https://fonts.googleapis.com" />
 <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
-<link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&family=IBM+Plex+Mono:wght@400;500;600&family=Share+Tech+Mono&display=swap" rel="stylesheet" />
+<link rel="preload" href="/fonts/geist-sans-latin-400-normal.woff2" as="font" type="font/woff2" crossorigin />
+<link rel="preload" href="/fonts/geist-sans-latin-500-normal.woff2" as="font" type="font/woff2" crossorigin />
+<link rel="stylesheet" href="/fonts/geist.css" />
+<link href="https://fonts.googleapis.com/css2?family=Chakra+Petch:wght@500&display=swap" rel="stylesheet" />
 <!-- Self-hosted, not CDN — see the Chart.js comment further down for why:
      minimizing third-party script/style origins is also a CSP hardening
      measure (fewer origins to trust in script-src/style-src). -->
@@ -22,9 +25,11 @@
 <a class="skip-link" href="#main">Skip to content</a>
 <div class="side-backdrop" id="sideBackdrop" hidden></div>
 <aside class="sidebar" id="sidebar" aria-label="Fleet Shield">
-  <div class="side-brand">
-    <a class="brand-logo site-logo" href="/"><span class="brand-mark" aria-hidden="true"></span><span class="logo-stack"><span class="wordmark">JEGA<span class="sec">SEC</span></span><span class="site-tagline">Australian&nbsp;engineered</span></span></a>
-    <span class="side-product">Fleet Shield</span>
+  <div class="side-brand side-ws">
+    <a class="ws-link" href="/" aria-label="Fleet Shield home">
+      <span class="brand-mark ws-mark" aria-hidden="true"></span>
+      <span class="ws-text"><span class="ws-product">Fleet Shield</span><span class="ws-org" id="wsOrg">&nbsp;</span></span>
+    </a>
   </div>
   <nav class="side-nav" aria-label="Main">
       <button type="button" class="tab-btn side-link" data-tab="home"><svg class="side-ico" viewBox="0 0 24 24" aria-hidden="true"><path d="M3 10.5 12 3l9 7.5"/><path d="M5 9.5V21h14V9.5"/><path d="M10 21v-6h4v6"/></svg><span class="side-label">Home</span></button>
@@ -41,17 +46,23 @@
       <button type="button" class="tab-btn side-link" data-tab="import"><svg class="side-ico" viewBox="0 0 24 24" aria-hidden="true"><path d="M12 3v12"/><path d="m7.5 10.5 4.5 4.5 4.5-4.5"/><path d="M4 17v3h16v-3"/></svg><span class="side-label">Import data</span></button>
   </nav>
   <div class="side-foot">
-    <div class="conn" id="connStatus" title="Connection to live vehicle updates">
-      <span class="dot" id="connDot"></span>
-      <span id="connText">Connecting…</span>
+    <div class="acct">
+      <span class="acct-avatar" id="acctAvatar" aria-hidden="true">·</span>
+      <span class="acct-text">
+        <span class="acct-name" id="acctName">Signed in</span>
+        <span class="conn" id="connStatus" title="Connection to live vehicle updates"><span class="dot" id="connDot"></span><span id="connText">Connecting…</span></span>
+      </span>
     </div>
     <div class="side-foot-actions">
-      <button type="button" class="theme-toggle" id="themeToggle" aria-pressed="false" title="Switch between light and dark mode">
+      <button type="button" class="icon-btn theme-toggle" id="themeToggle" aria-pressed="false" title="Dark mode">
         <svg class="ico-moon" viewBox="0 0 24 24" aria-hidden="true"><path d="M20 14.5A8 8 0 1 1 9.5 4a6.5 6.5 0 0 0 10.5 10.5z"/></svg>
         <svg class="ico-sun" viewBox="0 0 24 24" aria-hidden="true"><circle cx="12" cy="12" r="4"/><path d="M12 2.5v2M12 19.5v2M2.5 12h2M19.5 12h2M5.3 5.3l1.4 1.4M17.3 17.3l1.4 1.4M5.3 18.7l1.4-1.4M17.3 6.7l1.4-1.4"/></svg>
-        <span id="themeToggleLabel">Dark mode</span>
+        <span class="sr-only" id="themeToggleLabel">Dark mode</span>
       </button>
-      <button type="button" class="brand-logout" id="logoutBtn">Log out</button>
+      <button type="button" class="icon-btn" id="logoutBtn" title="Log out">
+        <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M15 4h4v16h-4"/><path d="M10 8l-4 4 4 4"/><path d="M6 12h10"/></svg>
+        <span class="sr-only">Log out</span>
+      </button>
     </div>
   </div>
 </aside>

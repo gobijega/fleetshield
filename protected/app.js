@@ -153,6 +153,7 @@ function syncThemeToggle() {
   const dark = document.documentElement.getAttribute('data-theme') === 'dark';
   themeToggle.setAttribute('aria-pressed', String(dark));
   document.getElementById('themeToggleLabel').textContent = dark ? 'Light mode' : 'Dark mode';
+  themeToggle.title = dark ? 'Light mode' : 'Dark mode';
 }
 themeToggle.addEventListener('click', () => {
   const next = document.documentElement.getAttribute('data-theme') === 'dark' ? 'light' : 'dark';
@@ -467,7 +468,19 @@ function retryTile(tile) {
 fetch('/api/me')
   .then((r) => (r.ok ? r.json() : {}))
   .catch(() => ({}))
-  .then((me) => addBaseLayer(me && me.mapTileKey));
+  .then((me) => {
+    addBaseLayer(me && me.mapTileKey);
+    renderAccount(me || {});
+  });
+
+// Sidebar: the organisation under the product name, and the signed-in user
+// beside the connection status.
+function renderAccount(me) {
+  if (me.orgName) document.getElementById('wsOrg').textContent = me.orgName;
+  const name = me.username || 'Signed in';
+  document.getElementById('acctName').textContent = name;
+  document.getElementById('acctAvatar').textContent = (me.username || '·').charAt(0).toUpperCase();
+}
 
 // Leaflet sizes its tile grid from the #map container's dimensions at the
 // moment it's told to recalculate. On phones the container can be the

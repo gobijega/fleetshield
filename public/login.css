@@ -18,7 +18,7 @@ body {
   display: flex;
   align-items: center;
   justify-content: center;
-  font-family: 'Inter', -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Helvetica, Arial, sans-serif;
+  font-family: 'Geist', -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Helvetica, Arial, sans-serif;
   background: var(--bg);
   color: var(--text);
 }
@@ -45,7 +45,7 @@ body {
 
 .login-product {
   margin-top: 6px;
-  font-family: 'IBM Plex Mono', monospace;
+  font-family: 'Geist Mono', monospace;
   font-size: 12.5px;
   letter-spacing: 0.14em;
   text-transform: uppercase;
@@ -64,7 +64,7 @@ body {
 
 #loginForm label {
   display: block;
-  font-family: 'IBM Plex Mono', monospace;
+  font-family: 'Geist Mono', monospace;
   font-size: 11px;
   letter-spacing: 0.08em;
   text-transform: uppercase;
@@ -81,7 +81,7 @@ body {
   color: var(--text);
   padding: 10px 12px;
   font-size: 14px;
-  font-family: 'Inter', sans-serif;
+  font-family: 'Geist', sans-serif;
   border-radius: 0;
 }
 #loginForm input:focus {
@@ -96,7 +96,7 @@ body {
   background: var(--accent);
   color: #ffffff;
   border: none;
-  font-family: 'IBM Plex Mono', monospace;
+  font-family: 'Geist Mono', monospace;
   font-weight: 600;
   text-transform: uppercase;
   letter-spacing: 0.05em;
@@ -111,7 +111,7 @@ body {
 
 /* --- MFA: segmented 6-digit code input --- */
 .otp-label {
-  font-family: 'IBM Plex Mono', monospace;
+  font-family: 'Geist Mono', monospace;
   font-size: 11.5px;
   letter-spacing: 0.03em;
   color: var(--muted);
@@ -134,7 +134,7 @@ body {
   border: 1px solid var(--border);
   border-radius: 0;
   color: var(--text);
-  font-family: 'IBM Plex Mono', monospace;
+  font-family: 'Geist Mono', monospace;
   font-size: 22px;
   font-weight: 600;
   text-align: center;
@@ -170,7 +170,7 @@ body {
 .signup-footnote a { color: var(--accent); }
 
 .login-footnote {
-  font-family: 'IBM Plex Mono', monospace;
+  font-family: 'Geist Mono', monospace;
   font-size: 11px;
   color: var(--muted);
   letter-spacing: 0.04em;
@@ -209,11 +209,11 @@ body {
 :root[data-theme='dark'] #mfaForm button:hover { background: #1d4ed8; }
 
 /* Refined: solid near-black sign-in button (white in dark mode), sentence case */
-#loginForm button, #mfaForm button { background: #18181b; color: #ffffff; text-transform: none; letter-spacing: 0; font-family: 'Inter', -apple-system, sans-serif; font-weight: 600; border-radius: 0; }
+#loginForm button, #mfaForm button { background: #18181b; color: #ffffff; text-transform: none; letter-spacing: 0; font-family: 'Geist', -apple-system, sans-serif; font-weight: 600; border-radius: 0; }
 #loginForm button:hover, #mfaForm button:hover { background: #27272a; }
 :root[data-theme='dark'] #loginForm button, :root[data-theme='dark'] #mfaForm button { background: #ededef; color: #18181b; }
 :root[data-theme='dark'] #loginForm button:hover, :root[data-theme='dark'] #mfaForm button:hover { background: #d4d4d8; }
-.login-product { font-family: 'Inter', -apple-system, sans-serif; font-size: 15px; font-weight: 600; letter-spacing: -0.01em; text-transform: none; color: var(--text); margin-top: 14px; }
-#loginForm label, #mfaForm label { font-family: 'Inter', -apple-system, sans-serif; font-size: 13px; font-weight: 500; letter-spacing: 0; text-transform: none; color: var(--text); }
+.login-product { font-family: 'Geist', -apple-system, sans-serif; font-size: 15px; font-weight: 600; letter-spacing: -0.01em; text-transform: none; color: var(--text); margin-top: 14px; }
+#loginForm label, #mfaForm label { font-family: 'Geist', -apple-system, sans-serif; font-size: 13px; font-weight: 500; letter-spacing: 0; text-transform: none; color: var(--text); }
 #loginForm input, #mfaForm input { border-radius: 0; }
 #loginForm input:focus, #mfaForm input:focus { outline: none; border-color: var(--accent); box-shadow: 0 0 0 3px rgba(31, 79, 209, 0.15); }
