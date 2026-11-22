@@ -35,7 +35,7 @@
   padding: 10px 12px;
   font-size: 14px;
   font-family: 'Inter', sans-serif;
-  border-radius: 2px;
+  border-radius: 0;
 }
 #signupForm input:focus {
   outline: none;
@@ -68,7 +68,7 @@
   font-size: 13px;
   padding: 12px;
   cursor: pointer;
-  border-radius: 2px;
+  border-radius: 0;
   transition: background 0.15s, opacity 0.15s;
 }
 #signupForm button:hover { background: #1d4ed8; }
@@ -81,7 +81,7 @@
 :root[data-theme='dark'] #signupForm button { background: #2563eb; color: #ffffff; }
 :root[data-theme='dark'] #signupForm button:hover { background: #1d4ed8; }
 
-#signupForm button { background: #18181b; color: #ffffff; text-transform: none; letter-spacing: 0; font-family: 'Inter', -apple-system, sans-serif; font-weight: 600; border-radius: 7px; }
+#signupForm button { background: #18181b; color: #ffffff; text-transform: none; letter-spacing: 0; font-family: 'Inter', -apple-system, sans-serif; font-weight: 600; border-radius: 0; }
 #signupForm button:hover { background: #27272a; }
 :root[data-theme='dark'] #signupForm button { background: #ededef; color: #18181b; }
 :root[data-theme='dark'] #signupForm button:hover { background: #d4d4d8; }
