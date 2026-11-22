@@ -190,3 +190,20 @@ body {
   .otp-box { font-size: 18px; }
 }
 
+
+/* Dark mode (follows the choice made in the app, or the device setting) */
+:root[data-theme='dark'] {
+  color-scheme: dark;
+  --bg: #0f172a;
+  --panel: #1e293b;
+  --border: #2b3a52;
+  --border-bright: #3d4e68;
+  --text: #e2e8f0;
+  --muted: #94a3b8;
+  --accent: #7cb3fb;
+  --red: #fca5a5;
+}
+:root[data-theme='dark'] #loginForm button,
+:root[data-theme='dark'] #mfaForm button { background: #2563eb; color: #ffffff; }
+:root[data-theme='dark'] #loginForm button:hover,
+:root[data-theme='dark'] #mfaForm button:hover { background: #1d4ed8; }

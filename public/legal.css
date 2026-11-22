@@ -80,3 +80,18 @@ ul, ol { padding-left: 20px; }
   font-size: 11.5px;
   color: var(--muted);
 }
+
+/* Dark mode (follows the choice made in the app, or the device setting) */
+:root[data-theme='dark'] {
+  color-scheme: dark;
+  --bg: #0f172a;
+  --panel: #1e293b;
+  --panel-2: #172234;
+  --border: #2b3a52;
+  --border-bright: #3d4e68;
+  --text: #e2e8f0;
+  --muted: #94a3b8;
+  --accent: #7cb3fb;
+  --amber: #fbbf24;
+}
+:root[data-theme='dark'] .legal-header { background: rgba(15, 23, 42, 0.92); }

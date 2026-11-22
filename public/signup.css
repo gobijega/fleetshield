@@ -77,3 +77,6 @@
 @media (max-width: 600px) {
   #signupForm input { font-size: 16px; } /* avoid iOS auto-zoom on focus */
 }
+
+:root[data-theme='dark'] #signupForm button { background: #2563eb; color: #ffffff; }
+:root[data-theme='dark'] #signupForm button:hover { background: #1d4ed8; }

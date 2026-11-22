@@ -146,6 +146,28 @@ document.addEventListener('click', (e) => {
   showTab(link.dataset.goLink);
 });
 
+// Light / dark mode. theme-init.js has already applied the saved choice
+// (or the device setting); the toggle flips it and remembers it.
+const themeToggle = document.getElementById('themeToggle');
+function syncThemeToggle() {
+  const dark = document.documentElement.getAttribute('data-theme') === 'dark';
+  themeToggle.setAttribute('aria-pressed', String(dark));
+  document.getElementById('themeToggleLabel').textContent = dark ? 'Light mode' : 'Dark mode';
+}
+themeToggle.addEventListener('click', () => {
+  const next = document.documentElement.getAttribute('data-theme') === 'dark' ? 'light' : 'dark';
+  document.documentElement.setAttribute('data-theme', next);
+  try {
+    localStorage.setItem('fs.theme', next);
+  } catch {
+    /* storage blocked: the choice lasts for this page only */
+  }
+  syncThemeToggle();
+  // Charts read their colours from the theme, so they redraw.
+  window.dispatchEvent(new window.CustomEvent('fs-themechange', { detail: next }));
+});
+syncThemeToggle();
+
 // Mobile: the sidebar slides in over the page.
 const sidebarEl = document.getElementById('sidebar');
 const sideBackdrop = document.getElementById('sideBackdrop');
@@ -906,7 +928,7 @@ async function loadAssurance() {
             <td>${new Date(a.t).toLocaleString()}</td>
             <td>${v ? plateBadge(v) : '—'}</td>
             <td>${escapeHtml(labels[a.type] || a.type)}</td>
-            <td><span class="sev sev-${escapeHtml(a.severity)}">${escapeHtml(a.severity)}</span></td>
+            <td><span class="sev sev-${escapeHtml(a.severity)}">${escapeHtml(String(a.severity || "").replace(/^./, (c) => c.toUpperCase()))}</span></td>
             <td>${escapeHtml(a.message || '')}</td>
           </tr>`;
         })

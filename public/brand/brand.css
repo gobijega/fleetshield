@@ -60,3 +60,8 @@
 @media (max-width: 600px) {
   .site-logo .site-tagline { font-size: 9.5px; letter-spacing: 0.1em; }
 }
+
+/* Dark mode */
+:root[data-theme='dark'] .site-logo { color: #e2e8f0; }
+:root[data-theme='dark'] .site-logo .sec { color: #22c55e; }
+:root[data-theme='dark'] .site-logo .site-tagline { color: #4ade80; }
