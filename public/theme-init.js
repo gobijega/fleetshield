@@ -6,7 +6,7 @@
   var t = null;
   try {
     t = localStorage.getItem('fs.theme');
-  } catch (e) {
+  } catch {
     /* storage blocked: fall back to the device setting */
   }
   if (t !== 'light' && t !== 'dark') {

@@ -159,7 +159,7 @@ themeToggle.addEventListener('click', () => {
   document.documentElement.setAttribute('data-theme', next);
   try {
     localStorage.setItem('fs.theme', next);
-  } catch (e) {
+  } catch {
     /* storage blocked: the choice lasts for this page only */
   }
   syncThemeToggle();
