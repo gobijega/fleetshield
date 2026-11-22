@@ -1894,3 +1894,8 @@ input:focus, select:focus, textarea:focus { outline: none; border-color: var(--a
 .leaflet-bar, .leaflet-bar a, .leaflet-bar a:first-child, .leaflet-bar a:last-child,
 .leaflet-control-attribution, .leaflet-popup-content-wrapper, .leaflet-tooltip { border-radius: 0 !important; }
 input, select, textarea, button { border-radius: 0; }
+
+/* Data trust: evidence record button */
+.as-actions { display: flex; gap: 8px; flex-wrap: wrap; align-items: flex-start; }
+.as-btn.as-btn--primary { background: var(--accent-solid); color: var(--on-accent); border-color: var(--accent-solid); font-weight: 550; }
+.as-btn.as-btn--primary:hover { background: var(--accent-solid); color: var(--on-accent); opacity: 0.88; }

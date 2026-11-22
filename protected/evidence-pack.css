@@ -1,0 +1,438 @@
+/* Evidence record: a one-page, printable document. It always renders as
+   black on white paper, whatever theme the app is in, because it is meant
+   to be printed, saved as PDF and handed to someone else. */
+:root {
+  --ink: #18181b;
+  --ink-2: #3f3f46;
+  --muted: #63636b;
+  --line: #d4d4d8;
+  --hair: #e8e8ea;
+  --paper: #ffffff;
+  --desk: #e9e9ec;
+  --pass: #166534;
+  --pass-bg: #ecfdf3;
+  --find: #92400e;
+  --find-bg: #fff7ed;
+  --high: #b91c1c;
+  color-scheme: light;
+}
+* {
+  box-sizing: border-box;
+}
+body {
+  margin: 0;
+  background: var(--desk);
+  color: var(--ink);
+  font:
+    400 13px/1.45 'Inter',
+    -apple-system,
+    BlinkMacSystemFont,
+    'Segoe UI',
+    sans-serif;
+  -webkit-font-smoothing: antialiased;
+}
+.mono {
+  font-family: 'IBM Plex Mono', ui-monospace, monospace;
+  font-size: 0.92em;
+}
+
+/* Controls (screen only) */
+.ep-controls {
+  position: sticky;
+  top: 0;
+  z-index: 2;
+  display: flex;
+  flex-wrap: wrap;
+  align-items: end;
+  gap: 10px 14px;
+  padding: 12px 20px;
+  background: #fafafa;
+  border-bottom: 1px solid var(--line);
+}
+.ep-controls label {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  font-size: 12px;
+  font-weight: 500;
+  color: var(--ink-2);
+}
+.ep-controls select,
+.ep-controls input {
+  height: 34px;
+  padding: 0 9px;
+  border: 1px solid var(--line);
+  border-radius: 0;
+  background: #fff;
+  color: var(--ink);
+  font: inherit;
+  font-size: 13px;
+}
+.ep-back {
+  align-self: center;
+  color: var(--ink-2);
+  text-decoration: none;
+  font-size: 13px;
+  margin-right: 6px;
+}
+.ep-back:hover {
+  color: var(--ink);
+}
+.ep-btn {
+  height: 34px;
+  padding: 0 14px;
+  border: 1px solid var(--line);
+  border-radius: 0;
+  background: #fff;
+  color: var(--ink);
+  font:
+    500 13px 'Inter',
+    sans-serif;
+  cursor: pointer;
+}
+.ep-btn:hover {
+  background: #f4f4f5;
+}
+.ep-btn--primary {
+  background: var(--ink);
+  color: #fff;
+  border-color: var(--ink);
+}
+.ep-btn--primary:hover {
+  background: #27272a;
+}
+.ep-btn:focus-visible,
+.ep-controls select:focus-visible,
+.ep-controls input:focus-visible {
+  outline: 2px solid #1f4fd1;
+  outline-offset: 1px;
+}
+.ep-msg {
+  align-self: center;
+  color: var(--high);
+  font-size: 13px;
+}
+
+/* The sheet: A4 proportions on screen */
+.ep-sheet {
+  width: 210mm;
+  min-height: 297mm;
+  margin: 24px auto 48px;
+  padding: 14mm 14mm 12mm;
+  background: var(--paper);
+  box-shadow:
+    0 1px 3px rgba(0, 0, 0, 0.08),
+    0 8px 30px rgba(0, 0, 0, 0.08);
+  font-size: 9.5pt;
+}
+.ep-loading,
+.ep-error {
+  color: var(--muted);
+}
+
+.ep-head {
+  display: flex;
+  justify-content: space-between;
+  gap: 16px;
+  padding-bottom: 10px;
+  border-bottom: 2px solid var(--ink);
+}
+.ep-brand {
+  font-size: 8.5pt;
+  color: var(--muted);
+  letter-spacing: 0.01em;
+}
+.ep-brand b {
+  color: var(--ink);
+  font-weight: 600;
+}
+.ep-title {
+  margin: 3px 0 0;
+  font-size: 17pt;
+  font-weight: 600;
+  letter-spacing: -0.02em;
+  line-height: 1.15;
+}
+.ep-ref {
+  text-align: right;
+  font-size: 8.5pt;
+  color: var(--muted);
+}
+.ep-ref .mono {
+  color: var(--ink);
+  font-size: 9pt;
+}
+.ep-draft {
+  display: inline-block;
+  margin-top: 5px;
+  padding: 2px 7px;
+  border: 1px solid var(--find);
+  color: var(--find);
+  font-size: 7.5pt;
+  font-weight: 600;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+}
+
+.ep-meta {
+  display: grid;
+  grid-template-columns: repeat(3, 1fr);
+  gap: 6px 18px;
+  margin: 10px 0 0;
+}
+.ep-meta dt {
+  font-size: 7.5pt;
+  color: var(--muted);
+}
+.ep-meta dd {
+  margin: 1px 0 0;
+  font-weight: 500;
+}
+
+.ep-result {
+  display: flex;
+  align-items: baseline;
+  gap: 10px;
+  margin: 12px 0 0;
+  padding: 9px 12px;
+  border: 1px solid;
+}
+.ep-result--passed {
+  border-color: #bbe5c9;
+  background: var(--pass-bg);
+  color: var(--pass);
+}
+.ep-result--findings {
+  border-color: #fbd7a8;
+  background: var(--find-bg);
+  color: var(--find);
+}
+.ep-result b {
+  font-size: 11pt;
+  font-weight: 600;
+}
+.ep-result span {
+  color: var(--ink-2);
+}
+
+.ep-h {
+  margin: 14px 0 5px;
+  font-size: 9pt;
+  font-weight: 600;
+  letter-spacing: 0;
+}
+table {
+  width: 100%;
+  border-collapse: collapse;
+  font-size: 8.5pt;
+}
+th {
+  text-align: left;
+  font-weight: 500;
+  color: var(--muted);
+  font-size: 7.5pt;
+  padding: 4px 6px;
+  border-bottom: 1px solid var(--line);
+}
+td {
+  padding: 4px 6px;
+  border-bottom: 1px solid var(--hair);
+  vertical-align: top;
+  font-variant-numeric: tabular-nums;
+}
+td.num,
+th.num {
+  text-align: right;
+}
+.ep-plate {
+  display: inline-block;
+  padding: 0 4px;
+  border: 1px solid #94a3b8;
+  font-family: 'IBM Plex Mono', monospace;
+  font-size: 7.8pt;
+  font-weight: 500;
+  white-space: nowrap;
+}
+.ep-pill {
+  font-weight: 600;
+  white-space: nowrap;
+}
+.ep-pill--passed {
+  color: var(--pass);
+}
+.ep-pill--findings {
+  color: var(--find);
+}
+.ep-pill--no_data {
+  color: var(--high);
+}
+.ep-sev-high {
+  color: var(--high);
+  font-weight: 600;
+}
+.ep-more {
+  margin: 4px 0 0;
+  color: var(--muted);
+  font-size: 8pt;
+}
+
+.ep-two {
+  display: grid;
+  grid-template-columns: 1.15fr 1fr;
+  gap: 16px;
+}
+.ep-note {
+  margin: 0;
+  color: var(--ink-2);
+  font-size: 8pt;
+}
+.ep-note + .ep-note {
+  margin-top: 4px;
+}
+.ep-fp {
+  word-break: break-all;
+  font-size: 7.6pt;
+  color: var(--ink);
+}
+
+.ep-sign {
+  display: grid;
+  grid-template-columns: 1.3fr 1fr 0.8fr 1.2fr;
+  gap: 14px;
+  margin-top: 16px;
+}
+.ep-sign div {
+  border-top: 1px solid var(--ink);
+  padding-top: 3px;
+  font-size: 7.5pt;
+  color: var(--muted);
+  min-height: 30px;
+}
+
+.ep-foot {
+  margin-top: 12px;
+  padding-top: 6px;
+  border-top: 1px solid var(--line);
+  display: flex;
+  justify-content: space-between;
+  gap: 12px;
+  font-size: 7pt;
+  color: var(--muted);
+}
+
+@media screen and (max-width: 860px) {
+  .ep-sheet {
+    width: auto;
+    min-height: 0;
+    margin: 12px;
+    padding: 18px;
+  }
+  .ep-meta {
+    grid-template-columns: 1fr 1fr;
+  }
+  .ep-two,
+  .ep-sign {
+    grid-template-columns: 1fr;
+  }
+}
+
+@page {
+  size: A4;
+  margin: 7mm 10mm;
+}
+@media print {
+  body {
+    background: #fff;
+  }
+  .ep-controls {
+    display: none;
+  }
+  .ep-sheet {
+    width: auto;
+    min-height: 0;
+    margin: 0;
+    padding: 0;
+    box-shadow: none;
+    font-size: 8.2pt;
+  }
+  .ep-title {
+    font-size: 15pt;
+  }
+  .ep-meta {
+    gap: 4px 16px;
+    margin-top: 8px;
+  }
+  .ep-result {
+    margin-top: 9px;
+    padding: 6px 10px;
+  }
+  .ep-h {
+    margin: 10px 0 3px;
+  }
+  table {
+    font-size: 7.8pt;
+  }
+  td {
+    padding: 1.5px 5px;
+    line-height: 1.28;
+  }
+  .ep-plate {
+    line-height: 1.25;
+    font-size: 7.2pt;
+  }
+  .ep-meta dd {
+    line-height: 1.3;
+  }
+  .ep-more {
+    font-size: 7.2pt;
+  }
+  th {
+    padding: 3px 5px;
+  }
+  .ep-note {
+    font-size: 7.4pt;
+  }
+  .ep-sign {
+    margin-top: 10px;
+  }
+  .ep-sign div {
+    min-height: 18px;
+  }
+  .ep-foot {
+    margin-top: 6px;
+    padding-top: 4px;
+  }
+  .ep-h {
+    margin: 9px 0 3px;
+  }
+  tr,
+  .ep-two,
+  .ep-sign {
+    break-inside: avoid;
+  }
+  .ep-foot {
+    display: none;
+  }
+  .ep-print-only {
+    display: block;
+  }
+  * {
+    -webkit-print-color-adjust: exact;
+    print-color-adjust: exact;
+  }
+}
+.ep-print-only {
+  display: none;
+}
+.nowrap {
+  white-space: nowrap;
+}
+th.w-check {
+  width: 20%;
+}
+th.w-when {
+  width: 24%;
+}
+th.w-res {
+  width: 12%;
+}
