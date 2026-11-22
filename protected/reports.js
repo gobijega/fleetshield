@@ -34,6 +34,18 @@
       sev: { high: '#dc2626', medium: '#d97706', low: '#2563eb', info: '#94a3b8' },
       heat: ['#dbeafe', '#bfdbfe', '#93c5fd', '#60a5fa', '#2563eb', '#1e40af'],
     },
+    dark: {
+      text: '#e2e8f0',
+      muted: '#94a3b8',
+      grid: '#2b3a52',
+      surface: '#1e293b',
+      series: '#60a5fa',
+      moving: '#60a5fa',
+      idle: '#f0855a',
+      fuel: { diesel: '#60a5fa', petrol: '#f0855a', ev: '#34d399' },
+      sev: { high: '#f87171', medium: '#fbbf24', low: '#60a5fa', info: '#94a3b8' },
+      heat: ['#1e3a5f', '#1e4b8f', '#2563eb', '#3b82f6', '#60a5fa', '#bfdbfe'],
+    },
     print: {
       text: '#0b0b0b',
       muted: '#52514e',
@@ -47,7 +59,10 @@
       heat: ['#cde2fb', '#9ec5f4', '#6da7ec', '#3987e5', '#256abf', '#184f95'],
     },
   };
-  let theme = THEMES.screen;
+  // The on-screen palette follows the app's light / dark mode.
+  const screenTheme = () =>
+    document.documentElement.getAttribute('data-theme') === 'dark' ? 'dark' : 'screen';
+  let theme = THEMES[screenTheme()];
 
   const SEVERITIES = ['high', 'medium', 'low', 'info'];
   const SEV_LABEL = { high: 'High', medium: 'Medium', low: 'Low', info: 'Info' };
@@ -372,8 +387,9 @@
     window.addEventListener('afterprint', () => {
       document.querySelector('.rp-method').open = methodWasOpen;
       applyView();
-      setTheme('screen');
+      setTheme(screenTheme());
     });
+    window.addEventListener('fs-themechange', () => setTheme(screenTheme()));
   }
 
   function setTheme(name) {
@@ -660,8 +676,8 @@
             }
           : { display: false },
         tooltip: {
-          backgroundColor: '#ffffff',
-          borderColor: theme === THEMES.print ? '#cccccc' : '#cbd5e1',
+          backgroundColor: theme.surface,
+          borderColor: theme === THEMES.print ? '#cccccc' : theme.grid,
           borderWidth: 1,
           titleColor: theme.muted,
           bodyColor: theme.text,
