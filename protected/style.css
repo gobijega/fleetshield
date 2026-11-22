@@ -1,71 +1,76 @@
 :root {
-  /* Light theme (Nov 2026): light grey page, white cards, navy text, blue
-     for actions and selection. Green, amber and red are kept for status:
-     green = moving / good, amber = idling / warning, red = alert. */
-  --bg: #f6f8fb;
+  /* Refined neutral theme (Nov 2026): near-white page, white cards, hairline
+     borders, zinc greys for text. Primary buttons are solid near-black (white
+     in dark mode); blue is kept for links, selection and focus. Status colours
+     keep their meaning: green = moving / good, amber = idling / warning,
+     red = alert. */
+  --bg: #fafafa;
   --panel: #ffffff;
-  --panel-2: #f1f4f8;
-  --border: #e2e8f0;
-  --border-bright: #cbd5e1;
-  --text: #0f1b2d;
-  --muted: #5b6b80;
-  --accent: #1d4ed8;
-  --accent-dim: rgba(37,99,235,0.1);
+  --panel-2: #f4f4f5;
+  --border: #e8e8ea;
+  --border-bright: #d4d4d8;
+  --text: #18181b;
+  --muted: #63636b;
+  --accent: #1f4fd1;
+  --accent-dim: rgba(31,79,209,0.08);
   --on-accent: #ffffff;
-  --accent-solid: #1d4ed8;
+  --accent-solid: #18181b;
   --surface: #ffffff;
-  --text-2: #334155;
-  --muted-2: #64748b;
-  --ink-rgb: 15,27,45;
+  --side-bg: #fafafa;
+  --text-2: #3f3f46;
+  --muted-2: #63636b;
+  --ink-rgb: 24,24,27;
   --green: #166534;
-  --green-dim: rgba(22,163,74,0.12);
+  --green-dim: rgba(22,163,74,0.1);
   --amber: #92400e;
   --red: #b91c1c;
-  --info: #2563eb;
-  --parked: #64748b;
+  --info: #1f4fd1;
+  --parked: #71717a;
   /* Map palette */
-  --sl-bg: #eef2f6;
-  --sl-glass: var(--sl-glass);
-  --sl-line: #e2e8f0;
-  --sl-line-bright: #cbd5e1;
-  --sl-text: #0f1b2d;
-  --sl-muted: #5b6b80;
+  --sl-bg: #eef0f2;
+  --sl-glass: rgba(255,255,255,0.96);
+  --sl-line: #e8e8ea;
+  --sl-line-bright: #d4d4d8;
+  --sl-text: #18181b;
+  --sl-muted: #63636b;
   --sl-green: #16a34a;
   --sl-green-dim: #15803d;
   --sl-sand: #d97706;
 }
-/* Dark mode (toggle in the sidebar; the choice is remembered, and the
-   device's setting decides on a first visit). Soft slate and blue rather
-   than pure black, with the same status colours, lightened for contrast. */
+/* Dark mode: toggle in the sidebar; the choice is remembered, and the
+   device's setting decides on a first visit. */
 :root[data-theme='dark'] {
+  /* Dark mode: neutral dark greys (not blue-black), white primary buttons,
+     the same status colours lightened for contrast. */
   color-scheme: dark;
-  --bg: #0f172a;
-  --panel: #1e293b;
-  --panel-2: #172234;
-  --border: #2b3a52;
-  --border-bright: #3d4e68;
-  --text: #e2e8f0;
-  --text-2: #cbd5e1;
-  --muted: #94a3b8;
-  --muted-2: #94a3b8;
-  --accent: #7cb3fb;
-  --accent-solid: #2563eb;
-  --accent-dim: rgba(96,165,250,0.16);
-  --on-accent: #ffffff;
-  --surface: #1e293b;
+  --bg: #1a1a1c;
+  --panel: #222225;
+  --panel-2: #1e1e21;
+  --border: #2e2e33;
+  --border-bright: #3f3f46;
+  --text: #ededef;
+  --text-2: #d4d4d8;
+  --muted: #a1a1aa;
+  --muted-2: #a1a1aa;
+  --accent: #8ab4f8;
+  --accent-solid: #ededef;
+  --accent-dim: rgba(138,180,248,0.12);
+  --on-accent: #18181b;
+  --surface: #222225;
+  --side-bg: #161618;
   --ink-rgb: 255,255,255;
   --green: #4ade80;
-  --green-dim: rgba(74,222,128,0.14);
+  --green-dim: rgba(74,222,128,0.12);
   --amber: #fbbf24;
   --red: #fca5a5;
-  --info: #7cb3fb;
-  --parked: #94a3b8;
-  --sl-bg: #0b1322;
-  --sl-glass: rgba(30,41,59,0.96);
-  --sl-line: #2b3a52;
-  --sl-line-bright: #3d4e68;
-  --sl-text: #e2e8f0;
-  --sl-muted: #94a3b8;
+  --info: #8ab4f8;
+  --parked: #a1a1aa;
+  --sl-bg: #141416;
+  --sl-glass: rgba(34,34,37,0.96);
+  --sl-line: #2e2e33;
+  --sl-line-bright: #3f3f46;
+  --sl-text: #ededef;
+  --sl-muted: #a1a1aa;
   --sl-green: #22c55e;
   --sl-green-dim: #4ade80;
   --sl-sand: #f59e0b;
@@ -146,7 +151,7 @@ body {
 .tab-btn.active { color: var(--accent); opacity: 1; border-bottom-color: var(--accent); text-shadow: none; }
 .badge {
   background: var(--accent-solid);
-  color: #ffffff;
+  color: var(--on-accent);
   font-weight: 600;
   border-radius: 10px;
   padding: 1px 7px;
@@ -390,7 +395,7 @@ body.map-mode #tab-map { height: 100%; }
 .plate-edit { display: flex; gap: 8px; align-items: center; margin-top: 8px; flex-wrap: wrap; }
 .plate-edit[hidden] { display: none; }
 .plate-edit input { background: var(--panel-2); border: 1px solid var(--border); border-radius: 6px; padding: 6px 8px; color: var(--text); width: 140px; }
-.geofence-card .plate-edit .btn-plate-save { color: #ffffff; background: var(--accent-solid); border-color: var(--accent); }
+.geofence-card .plate-edit .btn-plate-save { color: var(--on-accent); background: var(--accent-solid); border-color: var(--accent); }
 
 /* ---------------------------------------------------------------------
    Stealth JEGASEC theme for the Live Map — overrides the generic panel
@@ -681,7 +686,7 @@ body.map-mode #tab-map { height: 100%; }
   flex: 1 1 auto;
   background: var(--accent-solid);
   border: none;
-  color: #ffffff;
+  color: var(--on-accent);
   font-weight: 600;
   font-family: 'IBM Plex Mono', monospace;
   text-transform: uppercase;
@@ -864,7 +869,7 @@ body.map-mode #tab-map { height: 100%; }
   font: 500 12.5px 'Inter', sans-serif;
 }
 .rp-btn:hover { border-color: var(--muted); }
-.rp-btn.primary { background: var(--text); color: #ffffff; border-color: var(--text); }
+.rp-btn.primary { background: var(--accent-solid); color: var(--on-accent); border-color: var(--accent-solid); }
 .rp-seg button:focus-visible, .rp-btn:focus-visible, .rp-chip:focus-visible,
 .rp-table tbody tr:focus-visible, .rp-table th:focus-visible {
   outline: 2px solid var(--accent); outline-offset: -2px;
@@ -1165,8 +1170,8 @@ body.rp-drawer-open { overflow: hidden; }
 }
 .al-btn:hover { border-color: var(--accent); color: var(--accent); }
 .al-btn:focus-visible, .al-seg button:focus-visible, .al-chips button:focus-visible, .al-repeat:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
-.al-btn--primary { background: var(--accent-solid); color: #fff; border-color: var(--accent); font-weight: 600; }
-.al-btn--primary:hover { color: #fff; filter: brightness(1.1); }
+.al-btn--primary { background: var(--accent-solid); color: var(--on-accent); border-color: var(--accent-solid); font-weight: 600; }
+.al-btn--primary:hover { color: var(--on-accent); opacity: 0.88; filter: none; }
 .al-btn--ghost { color: var(--muted); }
 .al-btn--link { border-color: transparent; color: var(--muted); text-decoration: underline; }
 .al-btn--sm { padding: 4px 9px; font-size: 12px; }
@@ -1519,7 +1524,7 @@ body.rp-drawer-open { overflow: hidden; }
    ===================================================================== */
 :root { --side-w: 232px; }
 
-.skip-link { position: absolute; left: -9999px; top: 8px; z-index: 2000; background: var(--accent-solid); color: #ffffff; padding: 8px 12px; border-radius: 6px; font-weight: 600; }
+.skip-link { position: absolute; left: -9999px; top: 8px; z-index: 2000; background: var(--accent-solid); color: var(--on-accent); padding: 8px 12px; border-radius: 6px; font-weight: 600; }
 .skip-link:focus { left: 8px; }
 
 body { display: grid; grid-template-columns: var(--side-w) minmax(0, 1fr); min-height: 100vh; }
@@ -1761,3 +1766,121 @@ body.map-mode main { flex: 1; min-height: 0; padding: 0; max-width: none; }
 .vm--parked .vm-plate { color: #475569; background: #ffffff; }
 .vi-warn { color: var(--amber); }
 .leaflet-bar a, .leaflet-bar a:hover { color: var(--text); }
+
+
+/* =====================================================================
+   Refinement pass (Nov 2026): quieter, more precise.
+   Neutral greys, hairline borders, one solid primary colour, figures that
+   line up, sentence-case labels, and blue only for links and selection.
+   ===================================================================== */
+body {
+  -webkit-font-smoothing: antialiased;
+  -moz-osx-font-smoothing: grayscale;
+  font-feature-settings: 'cv11', 'ss01', 'ss03';
+  letter-spacing: -0.003em;
+}
+::selection { background: rgba(31,79,209,0.18); }
+h2 { font-weight: 600; letter-spacing: -0.02em; }
+.panel-header h2, .hm-head h2 { font-size: 22px; }
+.hint { color: var(--muted); }
+
+/* Figures */
+.hm-tile-n, .card .value, .rp-kpi-value, .rp-kpi .value, .as-trust .value, .mt-kpi .value,
+.al-card .value, .badge, .fleet-count, td, .rp-table td { font-variant-numeric: tabular-nums; }
+.hm-tile-n { font-size: 28px; font-weight: 600; letter-spacing: -0.03em; }
+.card .value { font-weight: 600; letter-spacing: -0.025em; }
+
+/* Sidebar: same tone as the page, quiet selection */
+.sidebar { background: var(--side-bg); border-right: 1px solid var(--border); }
+.side-brand { border-bottom-color: transparent; padding-bottom: 12px; }
+.side-group { text-transform: none; letter-spacing: 0; font-size: 12px; font-weight: 500; color: var(--muted); margin: 18px 10px 6px; }
+.side-link.tab-btn { color: var(--text-2); font-weight: 450; border-radius: 7px; min-height: 36px; }
+.side-link.tab-btn:hover { background: rgba(var(--ink-rgb),0.04); color: var(--text); }
+.side-link.tab-btn.active { background: rgba(var(--ink-rgb),0.07); color: var(--text); box-shadow: none; font-weight: 550; }
+.side-link.tab-btn.active .side-ico { color: var(--text); }
+.side-ico { color: var(--muted); stroke-width: 1.6; }
+.side-link .badge { background: rgba(var(--ink-rgb),0.08); color: var(--text-2); font-weight: 600; }
+.side-foot { border-top-color: var(--border); }
+
+/* Cards and tiles: hairline, no glow, generous padding */
+.card, .hm-tile, .hm-card, .rp-kpi, .al-card, .mt-kpi, .geofence-form, .geofence-card,
+.fleet-card, .as-card, .rp-card, .rp-findings {
+  border-color: var(--border);
+  box-shadow: none;
+}
+.hm-tile, .hm-card, .card { border-radius: 10px; }
+.hm-tile:hover, .hm-action:hover { background: var(--panel); border-color: var(--border-bright); }
+.hm-tile-l, .card .label { color: var(--muted); font-size: 13px; }
+.hm-action { background: var(--panel); border-color: var(--border); border-radius: 9px; }
+.hm-action b { font-weight: 550; }
+.hm-item { border-top-color: var(--border); }
+.hm-item-dot { width: 7px; height: 7px; }
+
+/* Buttons: one solid primary, everything else neutral */
+.hm-item-go, .hm-refresh, .brand-logout, .theme-toggle, .as-btn, .as-link, .fleet-toggle, .rp-btn, .al-btn {
+  background: var(--panel);
+  color: var(--text);
+  border: 1px solid var(--border-bright);
+  border-radius: 7px;
+  font-weight: 500;
+}
+.hm-item-go:hover, .hm-refresh:hover, .brand-logout:hover, .theme-toggle:hover,
+.as-btn:hover, .as-link:hover, .fleet-toggle:hover, .rp-btn:hover, .al-btn:hover {
+  background: var(--panel-2);
+  border-color: var(--border-bright);
+  color: var(--text);
+}
+.geofence-form button[type='submit'], .al-btn--primary, .rp-btn.primary, .btn-plate-save {
+  background: var(--accent-solid);
+  color: var(--on-accent);
+  border-color: var(--accent-solid);
+  font-weight: 550;
+}
+.geofence-form button[type='submit']:hover, .al-btn--primary:hover, .rp-btn.primary:hover { opacity: 0.88; }
+
+/* Inputs */
+input[type='text'], input[type='search'], input[type='number'], input[type='email'], input[type='password'],
+select, textarea {
+  border-color: var(--border-bright);
+  border-radius: 7px;
+}
+input:focus, select:focus, textarea:focus { outline: none; border-color: var(--accent); box-shadow: 0 0 0 3px var(--accent-dim); }
+
+/* Labels: small sentence-case Inter instead of spaced monospace capitals */
+.rp-eyebrow, .rp-kpi-label, .rp-table th, .rp-drawer h4, .alert-table th, .al-table th, table th {
+  font-family: 'Inter', -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif;
+  text-transform: none;
+  letter-spacing: 0;
+  font-size: 12px;
+  font-weight: 500;
+  color: var(--muted);
+}
+
+/* Segmented controls and chips: neutral, selected = raised white */
+.rp-seg, .al-seg { background: var(--panel-2); border-color: var(--border); }
+.rp-seg button.active, .al-seg button.active {
+  background: var(--panel);
+  color: var(--text);
+  box-shadow: 0 1px 2px rgba(var(--ink-rgb),0.1), 0 0 0 1px var(--border);
+}
+.st-chip, .st-fit { border-color: var(--border); }
+.st-chip.active { border-color: var(--text); color: var(--text); }
+.st-chip.active b, .fleet-count { color: var(--text); }
+.rp-subnav button.active, .mt-subnav button.active { color: var(--text); border-bottom-color: var(--text); }
+
+/* Status pills: lighter tints, medium weight */
+.sev, .status-pill, .gf-type, .al-status, .mt-st, .mt-pri { font-weight: 500; border-radius: 999px; }
+
+/* Map chrome */
+.fleet-panel { border-color: var(--border); border-radius: 12px; }
+.fleet-panel-head h3 { font-weight: 600; }
+.leaflet-bar a { border-color: var(--border) !important; }
+.rp-seg, .al-seg { padding: 3px; gap: 2px; border-radius: 9px; }
+.rp-seg button, .al-seg button { border-radius: 6px; border: 0 !important; }
+/* Neutral secondary details */
+.geofence-card .btn-plate { background: var(--panel); color: var(--text); border: 1px solid var(--border-bright); border-radius: 7px; }
+.geofence-card .btn-plate:hover { background: var(--panel-2); }
+.gf-type.custom { background: rgba(var(--ink-rgb),0.06); color: var(--text-2); }
+.al-row--open td { background: transparent; }
+.al-row--cursor td { background: rgba(var(--ink-rgb),0.045); }
+.al-row:hover td { background: rgba(var(--ink-rgb),0.03); }

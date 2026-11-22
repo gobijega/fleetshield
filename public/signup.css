@@ -80,3 +80,9 @@
 
 :root[data-theme='dark'] #signupForm button { background: #2563eb; color: #ffffff; }
 :root[data-theme='dark'] #signupForm button:hover { background: #1d4ed8; }
+
+#signupForm button { background: #18181b; color: #ffffff; text-transform: none; letter-spacing: 0; font-family: 'Inter', -apple-system, sans-serif; font-weight: 600; border-radius: 7px; }
+#signupForm button:hover { background: #27272a; }
+:root[data-theme='dark'] #signupForm button { background: #ededef; color: #18181b; }
+:root[data-theme='dark'] #signupForm button:hover { background: #d4d4d8; }
+#signupForm label { font-family: 'Inter', -apple-system, sans-serif; font-size: 13px; font-weight: 500; letter-spacing: 0; text-transform: none; color: var(--text); }
