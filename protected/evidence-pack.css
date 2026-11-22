@@ -24,7 +24,7 @@ body {
   background: var(--desk);
   color: var(--ink);
   font:
-    400 13px/1.45 'Inter',
+    400 13px/1.45 'Geist',
     -apple-system,
     BlinkMacSystemFont,
     'Segoe UI',
@@ -32,7 +32,7 @@ body {
   -webkit-font-smoothing: antialiased;
 }
 .mono {
-  font-family: 'IBM Plex Mono', ui-monospace, monospace;
+  font-family: 'Geist Mono', ui-monospace, monospace;
   font-size: 0.92em;
 }
 
@@ -86,7 +86,7 @@ body {
   background: #fff;
   color: var(--ink);
   font:
-    500 13px 'Inter',
+    500 13px 'Geist',
     sans-serif;
   cursor: pointer;
 }
@@ -248,7 +248,7 @@ th.num {
   display: inline-block;
   padding: 0 4px;
   border: 1px solid #94a3b8;
-  font-family: 'IBM Plex Mono', monospace;
+  font-family: 'Geist Mono', monospace;
   font-size: 7.8pt;
   font-weight: 500;
   white-space: nowrap;
