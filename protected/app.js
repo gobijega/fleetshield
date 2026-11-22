@@ -164,7 +164,7 @@ themeToggle.addEventListener('click', () => {
   }
   syncThemeToggle();
   // Charts read their colours from the theme, so they redraw.
-  window.dispatchEvent(new CustomEvent('fs-themechange', { detail: next }));
+  window.dispatchEvent(new window.CustomEvent('fs-themechange', { detail: next }));
 });
 syncThemeToggle();
 
