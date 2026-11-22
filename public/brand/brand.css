@@ -19,7 +19,7 @@
   display: inline-flex;
   align-items: center;
   gap: 10px;
-  color: #0f1b2d;
+  color: #18181b;
   text-decoration: none;
   font-family: 'Chakra Petch', 'Share Tech Mono', monospace;
   font-weight: 400;
@@ -62,6 +62,6 @@
 }
 
 /* Dark mode */
-:root[data-theme='dark'] .site-logo { color: #e2e8f0; }
+:root[data-theme='dark'] .site-logo { color: #ededef; }
 :root[data-theme='dark'] .site-logo .sec { color: #22c55e; }
 :root[data-theme='dark'] .site-logo .site-tagline { color: #4ade80; }
