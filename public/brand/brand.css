@@ -19,7 +19,7 @@
   display: inline-flex;
   align-items: center;
   gap: 10px;
-  color: #edf0f3;
+  color: #0f1b2d;
   text-decoration: none;
   font-family: 'Chakra Petch', 'Share Tech Mono', monospace;
   font-weight: 400;
@@ -43,13 +43,12 @@
   text-align: left;
 }
 .site-logo .wordmark { display: inline-flex; align-items: center; }
-.site-logo .sec { color: #00ff41; }
+.site-logo .sec { color: #15803d; }
 .site-logo .site-tagline {
   font-size: 10.5px;
   letter-spacing: 0.14em;
   text-transform: uppercase;
-  color: #00ff41;
-  text-shadow: 0 0 8px rgba(0, 255, 65, 0.12);
+  color: #15803d;
   white-space: nowrap;
 }
 

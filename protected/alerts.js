@@ -240,7 +240,7 @@
       high: 'var(--red)',
       medium: 'var(--amber)',
       low: 'var(--accent)',
-      info: '#5f6b7d',
+      info: '#94a3b8',
     };
     let bars = '';
     data.forEach((d, i) => {
@@ -252,7 +252,7 @@
         bars += `<rect x="${(i * bw + 1).toFixed(1)}" y="${y.toFixed(1)}" width="${Math.max(1, bw - 2).toFixed(1)}" height="${h.toFixed(1)}" fill="${colors[s]}"/>`;
       }
     });
-    return `<svg viewBox="0 0 ${W} ${H}" preserveAspectRatio="none" class="al-hist" role="img" aria-label="Alert counts over the selected period">${bars}<line x1="0" y1="${H - 0.5}" x2="${W}" y2="${H - 0.5}" stroke="#263243"/></svg>`;
+    return `<svg viewBox="0 0 ${W} ${H}" preserveAspectRatio="none" class="al-hist" role="img" aria-label="Alert counts over the selected period">${bars}<line x1="0" y1="${H - 0.5}" x2="${W}" y2="${H - 0.5}" stroke="#cbd5e1"/></svg>`;
   }
 
   // ----------------------------------------------------------------- table
@@ -578,7 +578,7 @@
       if (mapPin) map.removeLayer(mapPin);
       mapPin = L.circleMarker([a.lat, a.lng], {
         radius: 14,
-        color: a.severity === 'high' ? '#ff4d5e' : '#ffb020',
+        color: a.severity === 'high' ? '#dc2626' : '#d97706',
         weight: 2,
         fillOpacity: 0.12,
         dashArray: '3 3',

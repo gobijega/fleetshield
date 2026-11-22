@@ -1,13 +1,13 @@
 :root {
-  --bg: #000000;
-  --panel: #0e131c;
-  --panel-2: #131a26;
-  --border: #1f2937;
-  --border-bright: #2a3648;
-  --text: #e6ebf3;
-  --muted: #8a97ab;
-  --accent: #00ff41;
-  --amber: #ffb020;
+  --bg: #f6f8fb;
+  --panel: #ffffff;
+  --panel-2: #f1f4f8;
+  --border: #e2e8f0;
+  --border-bright: #cbd5e1;
+  --text: #0f1b2d;
+  --muted: #5b6b80;
+  --accent: #2563eb;
+  --amber: #b45309;
 }
 
 * { box-sizing: border-box; }
@@ -24,7 +24,7 @@ a { color: var(--accent); }
 
 .legal-header {
   border-bottom: 1px solid var(--border);
-  background: rgba(6, 8, 12, 0.9);
+  background: rgba(255, 255, 255, 0.92);
   position: sticky;
   top: 0;
 }
@@ -55,7 +55,7 @@ a { color: var(--accent); }
 
 .draft-banner {
   border: 1px solid var(--amber);
-  background: rgba(255, 176, 32, 0.1);
+  background: rgba(217, 119, 6, 0.1);
   color: var(--amber);
   padding: 16px 20px;
   font-family: 'IBM Plex Mono', monospace;
